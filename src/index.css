@@ -1,0 +1,285 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Hide scrollbar while keeping functionality */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+textarea {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+textarea::-webkit-scrollbar {
+  display: none;
+}
+
+/* Apple Intelligence-inspired Design System */
+
+@layer base {
+  :root {
+    /* Elegant Slate Theme - Premium Minimalist */
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 215 28% 17%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 10% 40%;
+
+    --accent: 38 92% 50%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 240 6% 94%;
+    --input: 240 6% 94%;
+    --ring: 215 28% 17%;
+
+    --radius: 0.75rem;
+
+    /* Liquid Glass Variables */
+    --glass-bg: 0 0% 100% / 0.97;
+    --glass-highlight: 0 0% 100% / 0.8;
+    --glass-border: 0 0% 100% / 0.5;
+    --glass-blur: 24px;
+
+    /* Material Elevation Shadows */
+    --elevation-1: 0 1px 2px rgb(0 0 0 / 0.05), 0 1px 3px rgb(0 0 0 / 0.1);
+    --elevation-2: 0 2px 4px rgb(0 0 0 / 0.05), 0 3px 6px rgb(0 0 0 / 0.1);
+    --elevation-3: 0 4px 8px rgb(0 0 0 / 0.08), 0 6px 12px rgb(0 0 0 / 0.12);
+    --elevation-4: 0 8px 16px rgb(0 0 0 / 0.1), 0 12px 24px rgb(0 0 0 / 0.15);
+
+    /* Material State Layers */
+    --state-hover: 0 0% 0% / 0.08;
+    --state-pressed: 0 0% 0% / 0.12;
+    --state-focus: 0 0% 0% / 0.12;
+
+    /* Surface Tint */
+    --surface-tint: 215 28% 17% / 0.05;
+
+    /* Theme-specific gradient colors */
+    --gradient-primary: 38 92% 50%;
+    --gradient-secondary: 350 89% 60%;
+    --gradient-tertiary: 262 83% 58%;
+  }
+
+  .dark {
+    /* Dark Amber Theme - Warm & Modern */
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+
+    --card: 240 6% 10%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 240 6% 10%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 38 92% 50%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 4% 16%;
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 240 4% 16%;
+    --muted-foreground: 240 5% 64.9%;
+
+    --accent: 38 92% 50%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 240 4% 22%;
+    --input: 240 4% 22%;
+    --ring: 38 92% 50%;
+
+    --radius: 0.75rem;
+
+    /* Liquid Glass Variables - Dark */
+    --glass-bg: 240 10% 10% / 0.97;
+    --glass-highlight: 0 0% 100% / 0.12;
+    --glass-border: 0 0% 100% / 0.08;
+    --glass-blur: 28px;
+
+    /* Material Elevation Shadows - Dark */
+    --elevation-1: 0 1px 2px rgb(0 0 0 / 0.2), 0 1px 3px rgb(0 0 0 / 0.3);
+    --elevation-2: 0 2px 4px rgb(0 0 0 / 0.2), 0 3px 6px rgb(0 0 0 / 0.3);
+    --elevation-3: 0 4px 8px rgb(0 0 0 / 0.25), 0 6px 12px rgb(0 0 0 / 0.35);
+    --elevation-4: 0 8px 16px rgb(0 0 0 / 0.3), 0 12px 24px rgb(0 0 0 / 0.4);
+
+    /* Material State Layers - Dark */
+    --state-hover: 0 0% 100% / 0.08;
+    --state-pressed: 0 0% 100% / 0.12;
+    --state-focus: 0 0% 100% / 0.12;
+
+    /* Surface Tint - Dark (Amber) */
+    --surface-tint: 38 92% 50% / 0.08;
+
+    /* Theme-specific gradient colors */
+    --gradient-primary: 38 92% 50%;
+    --gradient-secondary: 350 89% 60%;
+    --gradient-tertiary: 262 83% 58%;
+  }
+}
+
+@layer base {
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes fade-in-only {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes scale-in {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply text-foreground bg-background;
+    font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', 'Helvetica Neue', sans-serif;
+    font-feature-settings: 'cv11', 'ss01';
+    font-weight: 400;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button, a, [role="button"] {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* Responsive typography */
+h1 {
+  @apply text-2xl md:text-3xl lg:text-4xl font-bold text-foreground;
+}
+h2 {
+  @apply text-xl md:text-2xl font-semibold text-foreground;
+}
+h3 {
+  @apply text-lg md:text-xl font-medium text-foreground;
+}
+p {
+  @apply text-sm md:text-base text-muted-foreground;
+}
+
+@layer components {
+  .animate-fade-in {
+    animation: fade-in 0.3s ease-out;
+  }
+  .animate-fade-in-only {
+    animation: fade-in-only 0.3s ease-out;
+  }
+  .animate-scale-in {
+    animation: scale-in 0.2s ease-out;
+  }
+}
+
+@layer base {
+  @keyframes ripple-effect {
+    0% { opacity: 0.2; transform: scale(0); }
+    100% { opacity: 0; transform: scale(2.5); }
+  }
+}
+
+@layer utilities {
+  .liquid-glass {
+    background: hsl(var(--glass-bg));
+    backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+    border: 1px solid hsl(var(--glass-border));
+    box-shadow: var(--elevation-2), inset 0 1px 0 hsl(var(--glass-highlight));
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    transform: translate3d(0, 0, 0);
+    -webkit-transform: translate3d(0, 0, 0);
+  }
+
+  .liquid-glass:hover {
+    box-shadow: var(--elevation-3), inset 0 1px 0 hsl(var(--glass-highlight)), 0 0 0 1px hsl(var(--glass-highlight));
+  }
+
+  /* Material State Layer */
+  .state-layer {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .state-layer::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: transparent;
+    transition: background 0.2s ease;
+    pointer-events: none;
+    border-radius: inherit;
+  }
+
+  .state-layer:hover::before {
+    background: hsl(var(--state-hover));
+  }
+
+  .state-layer:active::before {
+    background: hsl(var(--state-pressed));
+  }
+
+  /* Material Ripple Effect */
+  .ripple {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .ripple::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+
+  .ripple:active::after {
+    animation: ripple-effect 0.6s ease-out;
+    width: 200%;
+    padding-top: 200%;
+  }
+
+  /* Material Motion - Emphasized Easing */
+  .material-motion {
+    transition: all 0.3s cubic-bezier(0.2, 0, 0, 1);
+  }
+}

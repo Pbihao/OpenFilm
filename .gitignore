@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+
+# Local data & cache
+public/ffmpeg/
+local-data/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Editor
+.DS_Store
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Claude
+.claude
