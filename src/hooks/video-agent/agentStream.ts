@@ -12,11 +12,8 @@ import type { ToolCall, StreamResult } from '@/types/video-agent';
 const MAX_CONTEXT_TOKENS = 20000;
 
 function estimateTokens(text: string): number {
-  let tokens = 0;
-  for (let i = 0; i < text.length; i++) {
-    tokens += text.charCodeAt(i) > 0x2E7F ? 1.5 : 0.25;
-  }
-  return Math.ceil(tokens);
+  // ~4 chars per token is the standard GPT approximation
+  return Math.ceil(text.length / 4);
 }
 
 export function trimMessagesForContext(msgs: Record<string, unknown>[], reservedTokens = 0): Record<string, unknown>[] {
@@ -209,9 +206,13 @@ export async function streamAgentResponse(
     }
   }
 
-  // Convert assembled tool calls
+  // Convert assembled tool calls — filter out entries that were never fully assembled (aborted mid-stream)
   if (toolCallMap.size > 0) {
-    toolCalls = Array.from(toolCallMap.values());
+    toolCalls = Array.from(toolCallMap.values()).filter(tc => {
+      if (!tc.function.name) return false;
+      try { JSON.parse(tc.function.arguments || '{}'); return true; } catch { return false; }
+    });
+    if (toolCalls.length === 0) toolCalls = undefined;
   }
 
   return { content, thinking, tool_calls: toolCalls };

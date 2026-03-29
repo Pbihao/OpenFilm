@@ -1,39 +1,65 @@
 /**
- * Tool registry — maps ToolName → handler, enforced by TypeScript.
- * Adding a tool requires updating TOOL_NAMES in agentToolDefs.ts AND this registry.
- * A missing entry is a compile-time error, not a silent runtime bug.
+ * Tool registry — single source of truth for all agent tools.
+ *
+ * Adding a new tool:
+ *   1. Create src/hooks/video-agent/tools/<tool_name>.ts
+ *      — export `toolDef: ToolDefinition` with schema, execute, and optional isExpensive
+ *   2. Import it here and add to TOOL_REGISTRY
+ *   That's it. No other files need to change.
  */
 
-import { TOOL_NAMES, type ToolName } from '@/edge-logic/agentToolDefs';
 import type { ToolCall } from '@/types/video-agent';
-import type { ToolContext, ToolHandler } from './shared';
+import type { ToolContext, ToolDefinition } from './shared';
 
-import { handlePlanStory }          from './plan_story';
-import { handleGenerateFrames }     from './generate_frames';
-import { handleGenerateVideos }     from './generate_videos';
-import { handleEditShot }           from './edit_shot';
-import { handleResetWorkspace }     from './reset_workspace';
-import { handleGenerateImage }      from './generate_image';
-import { handleManageReferences }   from './manage_references';
-import { handleSuggestNextActions } from './suggest_next_actions';
+import { toolDef as planStory }          from './plan_story';
+import { toolDef as generateFrames }     from './generate_frames';
+import { toolDef as generateVideos }     from './generate_videos';
+import { toolDef as editShot }           from './edit_shot';
+import { toolDef as resetWorkspace }     from './reset_workspace';
+import { toolDef as generateImage }      from './generate_image';
+import { toolDef as manageReferences }   from './manage_references';
+import { toolDef as suggestNextActions } from './suggest_next_actions';
 
-export type { ToolContext, ToolHandler };
+export type { ToolContext, ToolDefinition };
+export type { ToolHandler } from './shared';
 
-// Record<ToolName, ...> ensures every ToolName has a handler — compile error if one is missing
-const TOOL_HANDLERS: Record<ToolName, ToolHandler> = {
-  [TOOL_NAMES.PLAN_STORY]:           handlePlanStory,
-  [TOOL_NAMES.GENERATE_FRAMES]:      handleGenerateFrames,
-  [TOOL_NAMES.GENERATE_VIDEOS]:      handleGenerateVideos,
-  [TOOL_NAMES.EDIT_SHOT]:            handleEditShot,
-  [TOOL_NAMES.RESET_WORKSPACE]:      handleResetWorkspace,
-  [TOOL_NAMES.GENERATE_IMAGE]:       handleGenerateImage,
-  [TOOL_NAMES.MANAGE_REFERENCES]:    handleManageReferences,
-  [TOOL_NAMES.SUGGEST_NEXT_ACTIONS]: handleSuggestNextActions,
-};
+// ─── Registry ─────────────────────────────────────────────────────────────────
+
+export const TOOL_REGISTRY: ToolDefinition[] = [
+  planStory,
+  generateFrames,
+  generateVideos,
+  editShot,
+  resetWorkspace,
+  generateImage,
+  manageReferences,
+  suggestNextActions,
+];
+
+// ─── Derived: API schemas (passed to the LLM) ─────────────────────────────────
+
+export const AGENT_TOOLS = TOOL_REGISTRY.map(t => t.schema);
+
+// ─── Derived: O(1) lookup maps (built once at module load) ───────────────────
+
+const handlerMap = new Map(TOOL_REGISTRY.map(t => [t.schema.function.name, t.execute]));
+
+// Static expensive tools (always require confirmation)
+const alwaysExpensiveNames = new Set(
+  TOOL_REGISTRY.filter(t => t.isExpensive === true).map(t => t.schema.function.name)
+);
+// Arg-dependent expensive tools (function predicate)
+const conditionalExpensiveDefs = new Map(
+  TOOL_REGISTRY
+    .filter((t): t is ToolDefinition & { isExpensive: (args: Record<string, any>) => boolean } =>
+      typeof t.isExpensive === 'function'
+    )
+    .map(t => [t.schema.function.name, t.isExpensive])
+);
 
 export async function executeTool(ctx: ToolContext, toolCall: ToolCall): Promise<string> {
-  const name = toolCall.function.name as ToolName;
-  const handler = TOOL_HANDLERS[name];
+  const name = toolCall.function.name;
+  const handler = handlerMap.get(name);
   if (!handler) return JSON.stringify({ success: false, error: `Unknown tool: ${name}` });
 
   let args: Record<string, any>;
@@ -41,4 +67,14 @@ export async function executeTool(ctx: ToolContext, toolCall: ToolCall): Promise
   catch { return JSON.stringify({ success: false, error: `Invalid tool arguments for ${name}` }); }
 
   return handler(ctx, args, toolCall.id);
+}
+
+// ─── Expensive-tool check — O(1) via pre-built maps ──────────────────────────
+
+export function isExpensiveTool(toolCall: ToolCall): boolean {
+  const name = toolCall.function.name;
+  if (alwaysExpensiveNames.has(name)) return true;
+  const predicate = conditionalExpensiveDefs.get(name);
+  if (!predicate) return false;
+  try { return predicate(JSON.parse(toolCall.function.arguments)); } catch { return false; }
 }

@@ -1,6 +1,6 @@
 import { generateFrame } from '@/edge-logic/generateFrame';
 import { writeSessionFile } from '@/lib/localFs';
-import type { ToolHandler, ReferenceImage } from './shared';
+import type { ToolHandler, ToolDefinition, ReferenceImage } from './shared';
 
 export const handleGenerateImage: ToolHandler = async (ctx, args) => {
   if (!args.prompt) return JSON.stringify({ success: false, error: 'Prompt is required' });
@@ -27,4 +27,24 @@ export const handleGenerateImage: ToolHandler = async (ctx, args) => {
   } catch (err) {
     return JSON.stringify({ success: false, error: err instanceof Error ? err.message : String(err) });
   }
+};
+
+export const toolDef: ToolDefinition = {
+  schema: {
+    type: 'function',
+    function: {
+      name: 'generate_image',
+      description: 'Generate a standalone image in the chat (not tied to any shot). Use this for concept exploration or reference creation.',
+      parameters: {
+        type: 'object',
+        properties: {
+          prompt: { type: 'string', description: 'Text description of the image' },
+          reference_image_url: { type: 'string', description: 'Optional reference image URL' },
+        },
+        required: ['prompt'],
+      },
+    },
+  },
+  execute: handleGenerateImage,
+  isExpensive: true,
 };

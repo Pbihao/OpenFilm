@@ -1,4 +1,4 @@
-import type { ToolHandler } from './shared';
+import type { ToolHandler, ToolDefinition } from './shared';
 import { updateShot } from './shared';
 
 export const handleManageReferences: ToolHandler = async (ctx, args) => {
@@ -7,6 +7,7 @@ export const handleManageReferences: ToolHandler = async (ctx, args) => {
   switch (action) {
     case 'add': {
       if (!image_url) return JSON.stringify({ success: false, error: 'image_url required for add' });
+      try { new URL(image_url); } catch { return JSON.stringify({ success: false, error: 'Invalid image_url' }); }
       const refs = ctx.configRef.current.referenceImageUrls;
       if (refs.includes(image_url)) return JSON.stringify({ success: true, message: 'Already registered', total: refs.length });
       if (refs.length >= 3) return JSON.stringify({ success: false, error: 'Maximum 3 reference images. Remove one first.' });
@@ -43,4 +44,37 @@ export const handleManageReferences: ToolHandler = async (ctx, args) => {
     default:
       return JSON.stringify({ success: false, error: `Unknown action: ${action}` });
   }
+};
+
+export const toolDef: ToolDefinition = {
+  schema: {
+    type: 'function',
+    function: {
+      name: 'manage_references',
+      description:
+        'Manage global reference images or assign an image directly to a shot frame. ' +
+        'Actions: "add" (register URL as reference), "remove" (by 1-based index), ' +
+        '"clear" (remove all), "assign" (set image as a shot\'s first or last frame).',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['add', 'remove', 'clear', 'assign'],
+            description: 'Action to perform',
+          },
+          image_url: { type: 'string', description: 'Image URL (required for add/assign)' },
+          index: { type: 'number', description: '1-based index of reference to remove' },
+          shot_index: { type: 'number', description: 'Shot number for assign action (1-based)' },
+          frame_type: {
+            type: 'string',
+            enum: ['first', 'last'],
+            description: 'Which frame to assign the image to',
+          },
+        },
+        required: ['action'],
+      },
+    },
+  },
+  execute: handleManageReferences,
 };

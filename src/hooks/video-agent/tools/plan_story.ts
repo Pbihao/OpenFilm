@@ -1,6 +1,6 @@
 import { splitStory } from '@/edge-logic/splitStory';
 import { createShot } from '../agentSession';
-import type { ToolContext, ToolHandler } from './shared';
+import type { ToolHandler, ToolDefinition } from './shared';
 import { replaceAllShots } from './shared';
 
 export const handlePlanStory: ToolHandler = async (ctx, args) => {
@@ -47,4 +47,29 @@ export const handlePlanStory: ToolHandler = async (ctx, args) => {
   } catch (err) {
     return JSON.stringify({ success: false, error: err instanceof Error ? err.message : String(err) });
   }
+};
+
+export const toolDef: ToolDefinition = {
+  schema: {
+    type: 'function',
+    function: {
+      name: 'plan_story',
+      description:
+        "Break the user's story into 1-5 shots, each with a video prompt, first-frame prompt, and last-frame prompt. Call this whenever the user describes a new video idea.",
+      parameters: {
+        type: 'object',
+        properties: {
+          story: { type: 'string', description: 'Full story description from the user' },
+          shot_count: { type: 'number', description: 'Number of shots (1-5, default 3)' },
+          aspect_ratio: { type: 'string', enum: ['16:9', '9:16'], description: 'Video aspect ratio' },
+          clear_references: {
+            type: 'boolean',
+            description: 'Set true when starting a completely new/different project to clear old reference images',
+          },
+        },
+        required: ['story'],
+      },
+    },
+  },
+  execute: handlePlanStory,
 };

@@ -5,15 +5,6 @@
 export type ToolConfirmationStatus = 'pending' | 'confirmed' | 'rejected';
 
 // Always-expensive tools (require confirmation regardless of args)
-export const EXPENSIVE_TOOLS = new Set([
-  'generate_frames',
-  'generate_videos',
-  'reset_workspace',
-  'generate_image',
-]);
-// edit_shot is conditionally expensive: only when args.regenerate is set
-// — handled in processToolRound via isExpensiveToolCall()
-
 export interface AgentMessage {
   id: string;
   role: 'user' | 'assistant' | 'tool';

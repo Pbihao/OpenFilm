@@ -1,4 +1,4 @@
-import type { ToolHandler } from './shared';
+import type { ToolHandler, ToolDefinition } from './shared';
 import { replaceAllShots, generateAllFramesInternal, generateAllVideosInternal } from './shared';
 
 export const handleResetWorkspace: ToolHandler = async (ctx, args, tcId) => {
@@ -27,4 +27,27 @@ export const handleResetWorkspace: ToolHandler = async (ctx, args, tcId) => {
   }
 
   return JSON.stringify({ success: true, frames: framesData.frames, include_videos: false });
+};
+
+export const toolDef: ToolDefinition = {
+  schema: {
+    type: 'function',
+    function: {
+      name: 'reset_workspace',
+      description:
+        'Clear ALL generated frames and videos, then regenerate everything from scratch. ' +
+        'Use this when the user says "start over", "redo everything", or is dissatisfied with overall results.',
+      parameters: {
+        type: 'object',
+        properties: {
+          include_videos: {
+            type: 'boolean',
+            description: 'Also regenerate videos after frames are done',
+          },
+        },
+      },
+    },
+  },
+  execute: handleResetWorkspace,
+  isExpensive: true,
 };

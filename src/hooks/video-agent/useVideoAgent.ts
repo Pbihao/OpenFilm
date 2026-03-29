@@ -6,7 +6,6 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
 import type { StoryboardShot, StoryboardConfig, ShotStatus, FrameStatus } from '@/types/storyboard';
 import type { AgentMessage, ToolCall, SuggestedAction } from '@/types/video-agent';
-import { EXPENSIVE_TOOLS } from '@/types/video-agent';
 import { VIDEO_MODEL_CAPABILITIES, STORYBOARD_VIDEO_MODELS } from '@/types/video-generation';
 import { writeSessionFile, makeSessionFolder } from '@/lib/localFs';
 import { clearVideoCache } from '@/lib/videoBlobCache';
@@ -15,7 +14,7 @@ import { loadConfig } from '@/config';
 
 import { DEFAULT_CONFIG, createShot, saveSession, loadSession, clearStoredSession, compactMessages } from './agentSession';
 import { streamAgentResponse, trimMessagesForContext } from './agentStream';
-import { executeTool, type ToolContext } from './agentTools';
+import { executeTool, isExpensiveTool, type ToolContext } from './agentTools';
 
 export type { AgentMessage } from '@/types/video-agent';
 
@@ -71,16 +70,8 @@ async function processToolRound(
 
   if (realToolCalls.length === 0) return { toolMessages: [], realToolCalls, suggestions };
 
-  // edit_shot is conditionally expensive: only when args.regenerate is set
-  const isExpensiveToolCall = (tc: ToolCall): boolean => {
-    if (EXPENSIVE_TOOLS.has(tc.function.name)) return true;
-    if (tc.function.name === 'edit_shot') {
-      try { return !!JSON.parse(tc.function.arguments).regenerate; } catch { return false; }
-    }
-    return false;
-  };
-  const immediateCalls = realToolCalls.filter(tc => !isExpensiveToolCall(tc));
-  const expensiveCalls = realToolCalls.filter(isExpensiveToolCall);
+  const immediateCalls = realToolCalls.filter(tc => !isExpensiveTool(tc));
+  const expensiveCalls = realToolCalls.filter(isExpensiveTool);
 
   const allResults: { tool_call_id: string; content: string }[] = [];
   for (const tc of immediateCalls) {
@@ -115,7 +106,7 @@ async function processToolRound(
         m.id === assistantMsgId
           ? { ...m, confirmationStatus: 'rejected' as const, pendingToolCalls: undefined,
               toolStatus: m.toolStatus?.map(ts =>
-                EXPENSIVE_TOOLS.has(ts.name) || ts.name === 'edit_shot' ? { ...ts, status: 'error' as const, result: 'Cancelled' } : ts
+                expensiveCalls.some(tc => tc.function.name === ts.name) ? { ...ts, status: 'error' as const, result: 'Cancelled' } : ts
               ) }
           : m
       ));
@@ -300,11 +291,9 @@ export function useVideoAgent() {
     }));
   }, []);
 
-  const currentUploadedUrlsRef = useRef<string[]>([]);
   const toolCtxRef = useRef<ToolContext>(null!);
   toolCtxRef.current = {
     shotsRef, configRef, storySummaryRef, abortControllerRef,
-    currentUploadedUrls: currentUploadedUrlsRef.current,
     sessionFolder,
     setShots, setConfig, setStorySummary, updateToolProgress,
   };
@@ -322,11 +311,8 @@ export function useVideoAgent() {
   const estimateReservedTokens = useCallback(() => {
     const SYSTEM_PROMPT_TOKENS = 2000;
     const shotsJson = JSON.stringify(buildShotsContext());
-    let shotTokens = 0;
-    for (let i = 0; i < shotsJson.length; i++) {
-      shotTokens += shotsJson.charCodeAt(i) > 0x2E7F ? 1.5 : 0.25;
-    }
-    return SYSTEM_PROMPT_TOKENS + Math.ceil(shotTokens);
+    // ~4 chars per token is the standard GPT approximation
+    return SYSTEM_PROMPT_TOKENS + Math.ceil(shotsJson.length / 4);
   }, [buildShotsContext]);
 
   const buildApiMessages = useCallback((extraMessages: AgentMessage[]) => {
@@ -408,7 +394,6 @@ export function useVideoAgent() {
     }
 
     abortControllerRef.current = new AbortController();
-    currentUploadedUrlsRef.current = [];
 
     // Step 1: generate local previews immediately (fast, no network)
     const previewUrls: string[] = [];
@@ -441,7 +426,6 @@ export function useVideoAgent() {
         )
       );
       falUrls = results.map((r, i) => r.status === 'fulfilled' ? r.value : previewUrls[i]);
-      currentUploadedUrlsRef.current = falUrls;
       setMessages(prev => prev.map(m =>
         m.id === userMsgId ? { ...m, imageUrls: falUrls, isUploadingImages: false } : m
       ));
@@ -520,6 +504,9 @@ export function useVideoAgent() {
         currentMsgId = nextMsgId;
         activeMsgId = nextMsgId;
       }
+
+      // Remove orphaned loading message if MAX_TOOL_ROUNDS was exhausted mid-tool-call
+      setMessages(prev => prev.filter(m => !(m.id === activeMsgId && m.isLoading && !m.content)));
 
       // Propagate suggestions to the final assistant message.
       // Priority: same-round > earlier-round > workflow-state fallback

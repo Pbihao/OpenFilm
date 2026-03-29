@@ -21,7 +21,6 @@ export interface ToolContext {
   configRef: React.MutableRefObject<StoryboardConfig>;
   storySummaryRef: React.MutableRefObject<string>;
   abortControllerRef: React.MutableRefObject<AbortController | null>;
-  currentUploadedUrls: string[];
   sessionFolder: string;
   setShots: React.Dispatch<React.SetStateAction<StoryboardShot[]>>;
   setConfig: React.Dispatch<React.SetStateAction<StoryboardConfig>>;
@@ -30,6 +29,23 @@ export interface ToolContext {
 }
 
 export type ToolHandler = (ctx: ToolContext, args: Record<string, any>, tcId: string) => Promise<string>;
+
+export interface ToolDefinition {
+  schema: {
+    type: 'function';
+    function: {
+      name: string;
+      description: string;
+      parameters?: Record<string, any>;
+    };
+  };
+  execute: ToolHandler;
+  /**
+   * Whether this tool requires user confirmation before running.
+   * Pass a function for arg-dependent cases (e.g. edit_shot only expensive when regenerate is set).
+   */
+  isExpensive?: boolean | ((args: Record<string, any>) => boolean);
+}
 
 // ─── Shared state helpers ─────────────────────────────────────────────────────
 
@@ -222,10 +238,10 @@ export async function generateVideoForShot(
     if (!videoUrl) throw new Error('No video URL returned');
 
     updateShot(ctx, shotIndex, { status: 'completed', videoUrl, error: undefined });
-    prefetchAndCache(videoUrl).catch(() => {});
+    prefetchAndCache(videoUrl).catch(err => console.warn('[cache] video prefetch failed:', err));
     // Background: save blob to local FS as backup
     const videoFilename = `videos/shot${shotIndex + 1}_video_${Date.now()}.mp4`;
-    fetch(videoUrl).then(r => r.blob()).then(blob => writeSessionFile(ctx.sessionFolder, videoFilename, blob)).catch(() => {});
+    fetch(videoUrl).then(r => r.blob()).then(blob => writeSessionFile(ctx.sessionFolder, videoFilename, blob)).catch(err => console.warn('[localFs] video save failed:', err));
     return { videoUrl };
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err;
