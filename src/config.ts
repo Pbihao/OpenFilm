@@ -29,13 +29,7 @@ export function loadConfig(): AppConfig {
 }
 
 export function saveConfig(config: AppConfig): void {
-  const toSave: Partial<AppConfig> = { ...config };
-  // Don't persist keys that match the env var defaults — keeps .env.local changes effective
-  if (toSave.openrouterApiKey === (import.meta.env.VITE_OPENROUTER_API_KEY ?? ''))
-    delete toSave.openrouterApiKey;
-  if (toSave.falApiKey === (import.meta.env.VITE_FAL_API_KEY ?? ''))
-    delete toSave.falApiKey;
-  localStorage.setItem(CONFIG_KEY, JSON.stringify(toSave));
+  localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
 }
 
 export function isConfigured(): boolean {

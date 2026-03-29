@@ -27,7 +27,9 @@
     "save": "Save & Start",
     "securityWarning": "API keys are stored locally in your browser. Do not deploy this app to a public server.",
     "persistFalUploads": "Persist fal.ai uploads",
-    "persistFalUploadsHint": "Keep uploaded images on fal.ai permanently. Off by default — uploads expire after ~7 days."
+    "persistFalUploadsHint": "Keep uploaded images on fal.ai permanently. Off by default — uploads expire after ~7 days.",
+    "localStorage": "Local Storage",
+    "localStorageHint": "Generated images, videos, and chat history are automatically saved to the local-data/ folder in the project directory, organized by session."
   },
   "videoAgent": {
     "title": "Open Film",

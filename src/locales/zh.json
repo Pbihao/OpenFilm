@@ -27,7 +27,9 @@
     "save": "保存并开始",
     "securityWarning": "API 密钥仅存储在本地浏览器中，请勿将此应用部署到公网。",
     "persistFalUploads": "永久保存上传图片",
-    "persistFalUploadsHint": "将上传到 fal.ai 的图片永久保留。默认关闭——上传文件约 7 天后自动过期。"
+    "persistFalUploadsHint": "将上传到 fal.ai 的图片永久保留。默认关闭——上传文件约 7 天后自动过期。",
+    "localStorage": "本地存储",
+    "localStorageHint": "生成的图片、视频和对话记录自动保存到项目目录下的 local-data/ 文件夹，按 session 分子目录存放。"
   },
   "videoAgent": {
     "title": "Open Film",

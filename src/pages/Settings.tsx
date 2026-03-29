@@ -77,12 +77,8 @@ export default function SettingsPage() {
           <div className="flex items-start gap-3">
             <FolderOpen className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
             <div>
-              <p className="text-sm font-medium mb-1">本地存储</p>
-              <p className="text-xs text-muted-foreground">
-                生成的图片、视频和对话记录自动保存到项目目录下的{' '}
-                <code className="bg-muted px-1 py-0.5 rounded text-xs">local-data/</code>{' '}
-                文件夹，按 session 分子目录存放。
-              </p>
+              <p className="text-sm font-medium mb-1">{t('settings.localStorage')}</p>
+              <p className="text-xs text-muted-foreground">{t('settings.localStorageHint')}</p>
             </div>
           </div>
           <div className="flex items-start justify-between gap-4 pt-1 border-t border-border">
