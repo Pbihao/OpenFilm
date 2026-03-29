@@ -12,7 +12,7 @@ import { clearVideoCache } from '@/lib/videoBlobCache';
 import { falUploadFile } from '@/lib/fal';
 import { loadConfig } from '@/config';
 
-import { DEFAULT_CONFIG, createShot, saveSession, loadSession, clearStoredSession, compactMessages } from './agentSession';
+import { DEFAULT_CONFIG, createShot, saveSession, loadSession, clearStoredSession, splitMessagesForCompaction, buildHeuristicSummary, summarizeWithLLM } from './agentSession';
 import { streamAgentResponse, trimMessagesForContext } from './agentStream';
 import { executeTool, isExpensiveTool, type ToolContext } from './agentTools';
 
@@ -186,6 +186,7 @@ export function useVideoAgent() {
   messagesRef.current = messages;
   const abortControllerRef = useRef<AbortController | null>(null);
   const pendingResolveRef = useRef<((v: boolean) => void) | null>(null);
+  const isCompactingRef = useRef(false);
 
   // Restore session on mount
   useEffect(() => {
@@ -230,19 +231,50 @@ export function useVideoAgent() {
 
   // Compact + Persist — only when fully idle to avoid saving mid-generation state
   useEffect(() => {
-    if (messages.length === 0 && shots.length === 0) return;
-    if (isProcessing) return;
+    if (isProcessing || isCompactingRef.current) return;
     if (messages.some(m => m.isStreaming || m.isLoading)) return;
 
-    const { messages: compacted, summary: newSummary } = compactMessages(messages);
-    if (newSummary) {
-      const merged = conversationSummary ? `${conversationSummary}\n---\n${newSummary}` : newSummary;
-      const trimmedSummary = merged.length > 3000 ? merged.slice(-3000) : merged;
-      setConversationSummary(trimmedSummary);
-      setMessages(compacted);
+    // Token-based compression trigger (~4 chars/token, compress above 10K message tokens)
+    const messageTokens = messages.reduce((sum, m) => sum + Math.ceil((m.content?.length ?? 0) / 4), 0);
+    const { toKeep, toSummarize } = splitMessagesForCompaction(messages);
+
+    if (messageTokens >= 10_000 && toSummarize.length > 0) {
+      isCompactingRef.current = true;
+
+      // Apply heuristic summary immediately (zero latency)
+      const heuristic = buildHeuristicSummary(toSummarize);
+      const mergedHeuristic = conversationSummary ? `${conversationSummary}\n---\n${heuristic}` : heuristic;
+      const heuristicSummary = mergedHeuristic.slice(-4000);
+      setMessages(toKeep);
+      setConversationSummary(heuristicSummary);
+
+      // Persist compressed state immediately so a refresh doesn't undo the compaction
+      const compressedSession = {
+        id: sessionIdRef.current, sessionFolder,
+        messages: toKeep, shots, config, storySummary,
+        conversationSummary: heuristicSummary, savedAt: Date.now(),
+      };
+      saveSession(compressedSession);
+      void writeSessionFile(sessionFolder, 'session.json', JSON.stringify(compressedSession, null, 2));
+
+      // Upgrade to LLM summary in background
+      const cfg = loadConfig();
+      if (cfg.openrouterApiKey) {
+        summarizeWithLLM(toSummarize, cfg.openrouterApiKey, cfg.agentModel)
+          .then(llmSummary => {
+            if (!llmSummary) return;
+            const merged = conversationSummary ? `${conversationSummary}\n---\n${llmSummary}` : llmSummary;
+            setConversationSummary(merged.slice(-4000));
+          })
+          .catch(err => console.warn('[compress] LLM summarization failed, keeping heuristic:', err))
+          .finally(() => { isCompactingRef.current = false; });
+      } else {
+        isCompactingRef.current = false;
+      }
       return;
     }
 
+    if (messages.length === 0 && shots.length === 0) return;
     const sessionData = {
       id: sessionIdRef.current, sessionFolder, messages, shots, config, storySummary,
       conversationSummary: conversationSummary || undefined, savedAt: Date.now(),
@@ -500,7 +532,7 @@ export function useVideoAgent() {
           ...toolMessages
             .filter(tm => realToolCalls.some(tc => tc.id === tm.tool_call_id))
             .map(tm => ({ role: 'tool' as const, content: tm.content, tool_call_id: tm.tool_call_id })),
-        ]);
+        ], estimateReservedTokens());
         currentMsgId = nextMsgId;
         activeMsgId = nextMsgId;
       }
