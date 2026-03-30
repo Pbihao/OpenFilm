@@ -22,15 +22,17 @@ interface FramePreviewProps {
   onDelete?: () => void;
   onUpload?: (file: File) => void;
   onRegenerate?: () => void;
+  onDropMaterial?: (displayUrl: string, refUrl: string) => void;
 }
 
 export function FramePreview({
   url, status, label, failLabel, aspectClass = 'aspect-video', onClick,
-  onDownload, onDelete, onUpload, onRegenerate,
+  onDownload, onDelete, onUpload, onRegenerate, onDropMaterial,
 }: FramePreviewProps) {
   const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -44,8 +46,11 @@ export function FramePreview({
     <>
       <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
       <div
-        className={cn('rounded-lg overflow-hidden bg-muted border border-border/50 relative group', aspectClass, url && 'cursor-pointer')}
+        className={cn('rounded-lg overflow-hidden bg-muted border border-border/50 relative group', aspectClass, url && 'cursor-pointer', isDragOver && 'ring-2 ring-primary border-primary')}
         onClick={url ? onClick : undefined}
+        onDragOver={onDropMaterial ? e => { if (e.dataTransfer.types.includes('material-display-url')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setIsDragOver(true); } } : undefined}
+        onDragLeave={onDropMaterial ? () => setIsDragOver(false) : undefined}
+        onDrop={onDropMaterial ? e => { e.preventDefault(); setIsDragOver(false); const display = e.dataTransfer.getData('material-display-url'); const ref = e.dataTransfer.getData('material-ref-url'); if (display) onDropMaterial(display, ref || display); } : undefined}
       >
         {url ? (
           <>

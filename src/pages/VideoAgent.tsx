@@ -8,12 +8,15 @@ import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/componen
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { useVideoAgent } from '@/hooks/video-agent/useVideoAgent';
+import { useMaterials } from '@/hooks/video-agent/useMaterials';
 import { WorkshopPanel } from '@/components/video-agent/WorkshopPanel';
 import { WorkshopToolbar } from '@/components/video-agent/WorkshopToolbar';
 import { AgentChatPanel } from '@/components/video-agent/AgentChatPanel';
+import { MaterialLibraryDrawer } from '@/components/video-agent/MaterialLibraryDrawer';
 import { createShot } from '@/hooks/video-agent/agentSession';
 import { isConfigured } from '@/config';
 import { useNavigate } from 'react-router-dom';
+import type { Material } from '@/types/material';
 
 const StoryboardExport = lazy(() =>
   import('@/components/storyboard/StoryboardExport').then(m => ({ default: m.StoryboardExport }))
@@ -31,12 +34,16 @@ export default function VideoAgentPage() {
     messages, shots, isProcessing, config, sendMessage, clearSession,
     cancelGeneration, updateConfig, updateShot, setShots,
     frameModelOptions, videoModelOptions, confirmPendingTools, rejectPendingTools,
-    addReference, removeReference,
+    addReference, sessionFolder,
   } = useVideoAgent();
+
+  const { materials, addMaterial, removeMaterial, clearMaterials } = useMaterials();
 
   const [enableThinking, setEnableThinking] = useState(false);
   const [prefillText, setPrefillText] = useState<string>();
   const [view, setView] = useState<'workshop' | 'export'>('workshop');
+  // Files queued from the material library to be injected into the chat input
+  const [externalChatFiles, setExternalChatFiles] = useState<File[]>([]);
 
   const handleFillPrompt = useCallback((text: string) => setPrefillText(text), []);
   const handlePrefillHandled = useCallback(() => setPrefillText(undefined), []);
@@ -55,6 +62,29 @@ export default function VideoAgentPage() {
     setShots(prev => prev.filter(s => s.id !== shotId).map((s, i) => ({ ...s, index: i + 1 })));
   }, [setShots]);
 
+  // Attach a library material to the chat input (fetches to File if needed)
+  const handleAttachToChat = useCallback(async (mat: Material) => {
+    let file: File;
+    if (mat.file) {
+      file = mat.file;
+    } else {
+      const res = await fetch(mat.displayUrl);
+      const blob = await res.blob();
+      file = new File([blob], mat.name, { type: blob.type });
+    }
+    setExternalChatFiles(prev => [...prev, file]);
+  }, []);
+
+  // Save a generated image (URL) directly into the material library
+  const handleAddToLibrary = useCallback((url: string) => {
+    addMaterial({
+      id: crypto.randomUUID(),
+      displayUrl: url,
+      apiUrl: url.startsWith('https://') ? url : undefined,
+      name: `generated-${Date.now()}.png`,
+      addedAt: Date.now(),
+    });
+  }, [addMaterial]);
 
   const canExport = useMemo(() => shots.some(s => s.videoUrl), [shots]);
 
@@ -91,50 +121,64 @@ export default function VideoAgentPage() {
       </header>
 
       {view === 'workshop' ? (
-        <ResizablePanelGroup direction="horizontal" className="flex-1">
-          <ResizablePanel defaultSize={55} minSize={30}>
-            <div className="flex flex-col h-full overflow-hidden">
-              <WorkshopPanel
-                shots={shots}
-                aspectRatio={config.aspectRatio}
-                videoModelId={config.videoModelId}
-                referenceUrls={config.referenceImageUrls}
-                onAddReference={addReference}
-                onRemoveReference={removeReference}
-                onUpdateShot={updateShot}
-                onRemoveShot={handleRemoveShot}
-                onFillPrompt={handleFillPrompt}
-                onDirectSend={handleDirectSend}
-                onAddShot={handleAddShot}
-              />
-            </div>
-          </ResizablePanel>
-          <ResizableHandle withHandle />
-          <ResizablePanel defaultSize={45} minSize={25}>
-            <div className="relative h-full">
-              {hasPendingConfirmation && (
-                <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5 bg-destructive/10 text-destructive px-2.5 py-1 rounded-full animate-pulse">
-                  <span className="h-2 w-2 rounded-full bg-destructive" />
-                  <span className="text-[10px] font-medium">{t('videoAgent.confirmationNeeded', 'Confirmation needed')}</span>
-                </div>
-              )}
-              <AgentChatPanel
-                messages={messages}
-                isProcessing={isProcessing}
-                enableThinking={enableThinking}
-                prefillText={prefillText}
-                onPrefillHandled={handlePrefillHandled}
-                onToggleThinking={setEnableThinking}
-                onSendMessage={sendMessage}
-                onCancel={cancelGeneration}
-                onConfirmTools={confirmPendingTools}
-                onRejectTools={rejectPendingTools}
-                referenceUrls={config.referenceImageUrls}
-                onAddReference={addReference}
-              />
-            </div>
-          </ResizablePanel>
-        </ResizablePanelGroup>
+        <div className="flex flex-1 overflow-hidden">
+          <MaterialLibraryDrawer
+            materials={materials}
+            sessionFolder={sessionFolder}
+            onAddMaterial={addMaterial}
+            onRemoveMaterial={removeMaterial}
+            onClearAll={clearMaterials}
+            onAttachToChat={handleAttachToChat}
+          />
+          <ResizablePanelGroup direction="horizontal" className="flex-1">
+            <ResizablePanel defaultSize={55} minSize={30}>
+              <div className="flex flex-col h-full overflow-hidden">
+                <WorkshopPanel
+                  shots={shots}
+                  aspectRatio={config.aspectRatio}
+                  videoModelId={config.videoModelId}
+                  frameModelId={config.frameModelId}
+                  materials={materials}
+                  onAddMaterial={addMaterial}
+                  onRemoveMaterial={removeMaterial}
+                  onUpdateShot={updateShot}
+                  onRemoveShot={handleRemoveShot}
+                  onFillPrompt={handleFillPrompt}
+                  onDirectSend={handleDirectSend}
+                  onAddShot={handleAddShot}
+                />
+              </div>
+            </ResizablePanel>
+            <ResizableHandle withHandle />
+            <ResizablePanel defaultSize={45} minSize={25}>
+              <div className="relative h-full">
+                {hasPendingConfirmation && (
+                  <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5 bg-destructive/10 text-destructive px-2.5 py-1 rounded-full animate-pulse">
+                    <span className="h-2 w-2 rounded-full bg-destructive" />
+                    <span className="text-[10px] font-medium">{t('videoAgent.confirmationNeeded', 'Confirmation needed')}</span>
+                  </div>
+                )}
+                <AgentChatPanel
+                  messages={messages}
+                  isProcessing={isProcessing}
+                  enableThinking={enableThinking}
+                  prefillText={prefillText}
+                  onPrefillHandled={handlePrefillHandled}
+                  onToggleThinking={setEnableThinking}
+                  onSendMessage={sendMessage}
+                  onCancel={cancelGeneration}
+                  onConfirmTools={confirmPendingTools}
+                  onRejectTools={rejectPendingTools}
+                  referenceUrls={config.referenceImageUrls}
+                  onAddReference={addReference}
+                  externalPendingFiles={externalChatFiles}
+                  onExternalFilesConsumed={() => setExternalChatFiles([])}
+                  onAddToLibrary={handleAddToLibrary}
+                />
+              </div>
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        </div>
       ) : (
         <div className="flex-1 flex flex-col overflow-hidden">
           <Suspense fallback={

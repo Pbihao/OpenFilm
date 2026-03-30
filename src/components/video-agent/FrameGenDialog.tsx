@@ -1,15 +1,15 @@
 /**
  * FrameGenDialog — Free-form frame generation with material library.
  *
- * Local-first: images stored as blob URLs / data URLs, uploaded to fal.ai
- * only at submit time. Materials persist across sessions via localStorage.
+ * Local-first: images stored as blob URLs, uploaded to fal.ai only at
+ * submit time. Materials persist across sessions via localStorage.
  *
  * Features:
  *   - Clipboard paste (Ctrl+V / copy-from-browser)
  *   - Drag & drop anywhere in the dialog
  *   - Multiple file selection
  *   - Hover preview of library items
- *   - Material library persistence (localStorage, max 20 items)
+ *   - Material library persistence (localStorage, max 50 items)
  *   - Import from storyboard shots (从分镜导入)
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
@@ -26,40 +26,17 @@ import { falUploadFile } from '@/lib/fal';
 import { generateFrame } from '@/edge-logic/generateFrame';
 import type { StoryboardShot } from '@/types/storyboard';
 import type { ReferenceImage } from '@/edge-logic/generateFrame';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-export interface Material {
-  localUrl: string;  // blob URL (session) or data URL / CDN URL (restored)
-  dataUrl?: string;  // base64 for persistence; written async after upload
-  cdnUrl?: string;   // already-public URL — skip upload at submit time
-  file?: File;       // only for newly uploaded files
-  name: string;
-  usedAt: number;
-}
+import type { Material } from '@/types/material';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-export function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
 async function uploadMaterial(mat: Material, persist: boolean): Promise<string> {
-  if (mat.cdnUrl) return mat.cdnUrl; // already public — skip upload
+  if (mat.apiUrl) return mat.apiUrl;   // already a public CDN URL — skip upload
   if (mat.file) return falUploadFile(mat.file, persist);
-  if (mat.dataUrl) {
-    const res = await fetch(mat.dataUrl);
-    const blob = await res.blob();
-    return falUploadFile(new File([blob], mat.name, { type: blob.type }), persist);
-  }
-  const res = await fetch(mat.localUrl);
+  // displayUrl is /api/local-data or https:// — fetch as blob and upload
+  const res = await fetch(mat.displayUrl);
   const blob = await res.blob();
-  return falUploadFile(new File([blob], mat.name || 'image.png', { type: blob.type }), persist);
+  return falUploadFile(new File([blob], mat.name, { type: blob.type }), persist);
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -74,7 +51,7 @@ interface FrameGenDialogProps {
   frameModelId: string;
   materials: Material[];
   onAddMaterial: (material: Material) => void;
-  onRemoveMaterial: (localUrl: string) => void;
+  onRemoveMaterial: (id: string) => void;
   onGenerated: (url: string) => void;
 }
 
@@ -111,33 +88,33 @@ export function FrameGenDialog({
 
   // ─── File processing ────────────────────────────────────────────────────────
 
-  // Core helper: add files to attachments + library, async-generate dataUrl
-  const processFiles = useCallback(async (files: File[]) => {
+  // Core helper: add files to attachments + library
+  const processFiles = useCallback((files: File[]) => {
     const images = files.filter(f => f.type.startsWith('image/'));
     for (const file of images) {
-      const localUrl = URL.createObjectURL(file);
-      const mat: Material = { localUrl, file, name: file.name, usedAt: Date.now() };
+      const mat: Material = {
+        id: crypto.randomUUID(),
+        displayUrl: URL.createObjectURL(file),
+        file,
+        name: file.name,
+        addedAt: Date.now(),
+      };
       setAttachments(prev => [...prev, mat]);
       onAddMaterial(mat);
-      // Generate dataUrl async for persistence
-      fileToDataUrl(file).then(dataUrl => {
-        const updated = { ...mat, dataUrl };
-        setAttachments(prev => prev.map(a => a.localUrl === localUrl ? updated : a));
-        onAddMaterial(updated);
-      }).catch(() => {});
     }
   }, [onAddMaterial]);
 
   // Library-only upload (no attach)
-  const processLibraryFiles = useCallback(async (files: File[]) => {
+  const processLibraryFiles = useCallback((files: File[]) => {
     const images = files.filter(f => f.type.startsWith('image/'));
     for (const file of images) {
-      const localUrl = URL.createObjectURL(file);
-      const mat: Material = { localUrl, file, name: file.name, usedAt: Date.now() };
-      onAddMaterial(mat);
-      fileToDataUrl(file).then(dataUrl => {
-        onAddMaterial({ ...mat, dataUrl });
-      }).catch(() => {});
+      onAddMaterial({
+        id: crypto.randomUUID(),
+        displayUrl: URL.createObjectURL(file),
+        file,
+        name: file.name,
+        addedAt: Date.now(),
+      });
     }
   }, [onAddMaterial]);
 
@@ -172,12 +149,12 @@ export function FrameGenDialog({
   // ─── Library interaction ─────────────────────────────────────────────────
 
   const addLibraryItemToAttachments = useCallback((mat: Material) => {
-    setAttachments(prev => prev.some(a => a.localUrl === mat.localUrl) ? prev : [...prev, mat]);
-    onAddMaterial({ ...mat, usedAt: Date.now() });
+    setAttachments(prev => prev.some(a => a.id === mat.id) ? prev : [...prev, mat]);
+    onAddMaterial({ ...mat, addedAt: Date.now() });
   }, [onAddMaterial]);
 
-  const removeAttachment = useCallback((localUrl: string) => {
-    setAttachments(prev => prev.filter(a => a.localUrl !== localUrl));
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments(prev => prev.filter(a => a.id !== id));
   }, []);
 
   const handleLibraryWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
@@ -193,16 +170,17 @@ export function FrameGenDialog({
     const refUrl = type === 'first' ? s.firstFrameRefUrl : s.lastFrameRefUrl;
     if (!displayUrl) return;
     const mat: Material = {
-      localUrl: displayUrl,
-      cdnUrl: refUrl ?? (displayUrl.startsWith('http') ? displayUrl : undefined),
+      id: crypto.randomUUID(),
+      displayUrl,
+      apiUrl: refUrl ?? (displayUrl.startsWith('https://') ? displayUrl : undefined),
       name: `Shot ${s.index} ${type === 'first' ? '首帧' : '尾帧'}`,
-      usedAt: Date.now(),
+      addedAt: Date.now(),
     };
     onAddMaterial(mat);
   }, [onAddMaterial]);
 
   const alreadyInLibrary = useCallback((url: string) =>
-    materials.some(m => m.localUrl === url || m.cdnUrl === url), [materials]);
+    materials.some(m => m.displayUrl === url || m.apiUrl === url), [materials]);
 
   // ─── Generate ───────────────────────────────────────────────────────────────
 
@@ -222,7 +200,7 @@ export function FrameGenDialog({
       });
 
       for (const mat of attachments) {
-        onAddMaterial({ ...mat, usedAt: Date.now() });
+        onAddMaterial({ ...mat, addedAt: Date.now() });
       }
       onGenerated(url);
       onOpenChange(false);
@@ -235,8 +213,8 @@ export function FrameGenDialog({
 
   // ─── Derived ────────────────────────────────────────────────────────────────
 
-  const sortedMaterials = [...materials].sort((a, b) => b.usedAt - a.usedAt);
-  const isAttached = (url: string) => attachments.some(a => a.localUrl === url);
+  const sortedMaterials = [...materials].sort((a, b) => b.addedAt - a.addedAt);
+  const isAttached = (id: string) => attachments.some(a => a.id === id);
   const frameLabel = frameType === 'first' ? t('videoAgent.firstFrame') : t('videoAgent.lastFrame');
 
   const shotFrames = shots.flatMap(s => [
@@ -268,7 +246,7 @@ export function FrameGenDialog({
         {/* Hover preview — top-right corner */}
         {hoveredMat && (
           <div className="absolute top-12 right-12 z-50 bg-background border border-border rounded-xl shadow-xl overflow-hidden pointer-events-none w-44">
-            <img src={hoveredMat.localUrl} alt="" className="w-full h-auto max-h-36 object-contain bg-muted/30" />
+            <img src={hoveredMat.displayUrl} alt="" className="w-full h-auto max-h-36 object-contain bg-muted/30" />
             <p className="px-2 py-1 text-[10px] text-muted-foreground truncate">{hoveredMat.name}</p>
           </div>
         )}
@@ -287,11 +265,11 @@ export function FrameGenDialog({
             {attachments.length > 0 && (
               <div className="flex gap-2 flex-wrap p-3 pb-0">
                 {attachments.map((att) => (
-                  <div key={att.localUrl} className="relative group/att shrink-0">
-                    <img src={att.localUrl} alt="" className="h-14 w-14 rounded-lg object-cover border border-border/40" />
+                  <div key={att.id} className="relative group/att shrink-0">
+                    <img src={att.displayUrl} alt="" className="h-14 w-14 rounded-lg object-cover border border-border/40" />
                     <button
                       type="button"
-                      onClick={() => removeAttachment(att.localUrl)}
+                      onClick={() => removeAttachment(att.id)}
                       className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-background border border-border shadow-sm flex items-center justify-center opacity-0 group-hover/att:opacity-100 transition-opacity hover:bg-destructive/10 hover:border-destructive"
                     >
                       <X className="h-3 w-3 text-muted-foreground hover:text-destructive" />
@@ -422,10 +400,10 @@ export function FrameGenDialog({
                 style={{ scrollbarWidth: 'none' }}
               >
                 {sortedMaterials.map((mat) => {
-                  const attached = isAttached(mat.localUrl);
+                  const attached = isAttached(mat.id);
                   return (
                     <div
-                      key={mat.localUrl}
+                      key={mat.id}
                       onClick={() => addLibraryItemToAttachments(mat)}
                       onMouseEnter={() => setHoveredMat(mat)}
                       onMouseLeave={() => setHoveredMat(null)}
@@ -435,7 +413,7 @@ export function FrameGenDialog({
                       )}
                     >
                       <img
-                        src={mat.localUrl}
+                        src={mat.displayUrl}
                         alt=""
                         style={{ height: '80px', width: 'auto', maxWidth: '160px', display: 'block' }}
                         className="rounded-[10px]"
@@ -445,9 +423,9 @@ export function FrameGenDialog({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onRemoveMaterial(mat.localUrl);
-                          removeAttachment(mat.localUrl);
-                          if (hoveredMat?.localUrl === mat.localUrl) setHoveredMat(null);
+                          onRemoveMaterial(mat.id);
+                          removeAttachment(mat.id);
+                          if (hoveredMat?.id === mat.id) setHoveredMat(null);
                         }}
                         className="absolute top-1 right-1 h-5 w-5 rounded-full bg-background/80 backdrop-blur-sm border border-border/50 flex items-center justify-center opacity-0 group-hover/mat:opacity-100 transition-opacity hover:bg-destructive/10 hover:border-destructive"
                       >

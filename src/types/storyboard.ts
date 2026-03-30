@@ -11,10 +11,10 @@ export interface StoryboardShot {
   prompt: string;
   firstFramePrompt: string;
   lastFramePrompt: string;
-  firstFrameUrl?: string;
-  firstFrameRefUrl?: string;       // original CDN URL — always accessible to fal.ai (used as reference)
-  extractedLastFrameUrl?: string;
-  lastFrameRefUrl?: string;        // original CDN URL for last frame
+  firstFrameUrl?: string;          // display URL (/api/local-data or https://)
+  firstFrameRefUrl?: string;       // API URL (https:// only, sent to fal.ai)
+  extractedLastFrameUrl?: string;  // display URL (/api/local-data or https://)
+  lastFrameRefUrl?: string;        // API URL (https:// only, sent to fal.ai)
   videoUrl?: string;
   thumbnailUrl?: string;
   status: ShotStatus;

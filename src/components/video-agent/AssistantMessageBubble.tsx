@@ -2,14 +2,14 @@
  * AssistantMessageBubble — Assistant message display in agent chat
  */
 import { useState } from 'react';
-import { Sparkles, ChevronRight, Wrench, CheckCircle2, XCircle, ChevronDown, Check, X } from 'lucide-react';
+import { Sparkles, ChevronRight, Wrench, CheckCircle2, XCircle, ChevronDown, Check, X, Download, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { MarkdownContent } from '@/components/MarkdownContent';
 import { Chip } from '@/components/ui/chip';
-import type { AgentMessage, SuggestedAction, ToolCall } from '@/types/video-agent';
+import type { AgentMessage, ToolCall } from '@/types/video-agent';
 
 const TOOL_LABEL_KEYS: Record<string, string> = {
   plan_story:           'videoAgent.toolPlanStory',
@@ -132,15 +132,30 @@ function ToolConfirmationCard({
   );
 }
 
+function downloadImage(url: string, filename: string) {
+  fetch(url)
+    .then(res => res.blob())
+    .then(blob => {
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(blobUrl);
+    })
+    .catch(() => { window.open(url, '_blank'); });
+}
+
 interface AssistantMessageBubbleProps {
   message: AgentMessage;
   isLastAssistant: boolean;
   onSendMessage: (content: string) => void;
   onConfirmTools?: () => void;
   onRejectTools?: () => void;
+  onAddToLibrary?: (url: string) => void;
 }
 
-export function AssistantMessageBubble({ message, isLastAssistant, onSendMessage, onConfirmTools, onRejectTools }: AssistantMessageBubbleProps) {
+export function AssistantMessageBubble({ message, isLastAssistant, onSendMessage, onConfirmTools, onRejectTools, onAddToLibrary }: AssistantMessageBubbleProps) {
   if (message.isLoading) return <BouncingDots />;
 
   return (
@@ -153,7 +168,27 @@ export function AssistantMessageBubble({ message, isLastAssistant, onSendMessage
       {message.imageUrls && message.imageUrls.length > 0 && (
         <div className="flex flex-wrap gap-2 mt-2">
           {message.imageUrls.map((url, i) => (
-            <img key={i} src={url} alt="" className="max-w-[200px] rounded-lg border border-border object-cover" />
+            <div key={i} className="relative group/img">
+              <img src={url} alt="" className="max-w-[200px] rounded-lg border border-border object-cover" />
+              <div className="absolute bottom-1.5 right-1.5 flex gap-1 opacity-0 group-hover/img:opacity-100 transition-opacity">
+                <button
+                  onClick={() => downloadImage(url, `generated-${i + 1}.png`)}
+                  title="下载"
+                  className="h-6 w-6 rounded bg-background/80 backdrop-blur-sm border border-border flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Download className="h-3 w-3" />
+                </button>
+                {onAddToLibrary && (
+                  <button
+                    onClick={() => onAddToLibrary(url)}
+                    title="添加到素材库"
+                    className="h-6 w-6 rounded bg-background/80 backdrop-blur-sm border border-border flex items-center justify-center text-muted-foreground hover:text-primary transition-colors"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            </div>
           ))}
         </div>
       )}

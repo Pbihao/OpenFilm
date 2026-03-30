@@ -3,7 +3,7 @@
  */
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
-import { Film, Video, Sparkles, ChevronDown, ChevronRight, AlertCircle, Upload, Play, Maximize2, Layers, Plus, X, Loader2 } from 'lucide-react';
+import { Film, Video, Sparkles, ChevronDown, ChevronRight, AlertCircle, Upload, Play, Maximize2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AixioLogo } from '@/components/AixioLogo';
 import { SHOWCASES, type ShowcaseExample } from '@/data/showcases';
@@ -22,13 +22,13 @@ import {
   Dialog, DialogContent, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 import { FramePreview } from '@/components/video-agent/FramePreview';
-import { FrameGenDialog, type Material } from '@/components/video-agent/FrameGenDialog';
+import { FrameGenDialog } from '@/components/video-agent/FrameGenDialog';
+import type { Material } from '@/types/material';
 import type { StoryboardShot } from '@/types/storyboard';
 import { VIDEO_MODEL_CAPABILITIES } from '@/types/video-generation';
 import { VideoDurationSelector } from '@/components/VideoDurationSelector';
 import { Trash2 } from 'lucide-react';
 import { falUploadFile } from '@/lib/fal';
-import { loadConfig } from '@/config';
 import { getBlobUrl } from '@/lib/videoBlobCache';
 
 interface WorkshopPanelProps {
@@ -36,9 +36,9 @@ interface WorkshopPanelProps {
   aspectRatio: string;
   videoModelId: string;
   frameModelId: string;
-  referenceUrls: string[];
-  onAddReference: (url: string) => void;
-  onRemoveReference: (url: string) => void;
+  materials: Material[];
+  onAddMaterial: (material: Material) => void;
+  onRemoveMaterial: (id: string) => void;
   onUpdateShot?: (shotId: string, updates: Partial<StoryboardShot>) => void;
   onRemoveShot?: (shotId: string) => void;
   onFillPrompt?: (text: string) => void;
@@ -138,7 +138,7 @@ function ShotPreviewCard({
   onDelete?: () => void; onFillPrompt?: (text: string) => void;
   onDirectSend?: (text: string) => void;
   onAddMaterial: (material: Material) => void;
-  onRemoveMaterial: (localUrl: string) => void;
+  onRemoveMaterial: (id: string) => void;
 }) {
   const { t } = useTranslation();
   const aspectClass = getAspectClass(aspectRatio);
@@ -202,6 +202,12 @@ function ShotPreviewCard({
     if (!onUpdate) return;
     if (type === 'first') onUpdate({ firstFrameUrl: undefined, firstFrameStatus: 'idle' });
     else onUpdate({ extractedLastFrameUrl: undefined, lastFrameStatus: 'idle' });
+  };
+
+  const handleFrameAssignMaterial = (displayUrl: string, refUrl: string, type: 'first' | 'last') => {
+    if (!onUpdate) return;
+    if (type === 'first') onUpdate({ firstFrameUrl: displayUrl, firstFrameRefUrl: refUrl, firstFrameStatus: 'completed' });
+    else onUpdate({ extractedLastFrameUrl: displayUrl, lastFrameRefUrl: refUrl, lastFrameStatus: 'completed' });
   };
 
   const handleFrameUpload = async (file: File, type: 'first' | 'last') => {
@@ -323,7 +329,8 @@ function ShotPreviewCard({
             onDownload={shot.firstFrameUrl ? () => handleFrameDownload(shot.firstFrameUrl!, `shot-${shot.index}-first.png`) : undefined}
             onDelete={shot.firstFrameUrl ? () => handleFrameDelete('first') : undefined}
             onUpload={(file) => handleFrameUpload(file, 'first')}
-            onRegenerate={() => handleFrameRegenerate('first')} />
+            onRegenerate={() => handleFrameRegenerate('first')}
+            onDropMaterial={(d, r) => handleFrameAssignMaterial(d, r, 'first')} />
           <FramePreview url={shot.extractedLastFrameUrl} status={shot.lastFrameStatus}
             aspectClass="aspect-[9/16]"
             label={t('videoAgent.lastFrame')} failLabel={t('videoAgent.lastFrameFailed')}
@@ -331,7 +338,8 @@ function ShotPreviewCard({
             onDownload={shot.extractedLastFrameUrl ? () => handleFrameDownload(shot.extractedLastFrameUrl!, `shot-${shot.index}-last.png`) : undefined}
             onDelete={shot.extractedLastFrameUrl ? () => handleFrameDelete('last') : undefined}
             onUpload={(file) => handleFrameUpload(file, 'last')}
-            onRegenerate={() => handleFrameRegenerate('last')} />
+            onRegenerate={() => handleFrameRegenerate('last')}
+            onDropMaterial={(d, r) => handleFrameAssignMaterial(d, r, 'last')} />
           <div className={cn('rounded-lg overflow-hidden bg-muted border border-border/50 group relative', aspectClass, shot.videoUrl && 'cursor-pointer')}
             onClick={() => shot.videoUrl && setVideoDialogOpen(true)}>
             {shot.videoUrl ? (
@@ -394,7 +402,8 @@ function ShotPreviewCard({
             onDownload={shot.firstFrameUrl ? () => handleFrameDownload(shot.firstFrameUrl!, `shot-${shot.index}-first.png`) : undefined}
             onDelete={shot.firstFrameUrl ? () => handleFrameDelete('first') : undefined}
             onUpload={(file) => handleFrameUpload(file, 'first')}
-            onRegenerate={() => handleFrameRegenerate('first')} />
+            onRegenerate={() => handleFrameRegenerate('first')}
+            onDropMaterial={(d, r) => handleFrameAssignMaterial(d, r, 'first')} />
           <div className={cn('rounded-lg overflow-hidden bg-muted border border-border/50 row-span-2 group relative', aspectClass, shot.videoUrl && 'cursor-pointer')}
             onClick={() => shot.videoUrl && setVideoDialogOpen(true)}>
             {shot.videoUrl ? (
@@ -453,7 +462,8 @@ function ShotPreviewCard({
             onDownload={shot.extractedLastFrameUrl ? () => handleFrameDownload(shot.extractedLastFrameUrl!, `shot-${shot.index}-last.png`) : undefined}
             onDelete={shot.extractedLastFrameUrl ? () => handleFrameDelete('last') : undefined}
             onUpload={(file) => handleFrameUpload(file, 'last')}
-            onRegenerate={() => handleFrameRegenerate('last')} />
+            onRegenerate={() => handleFrameRegenerate('last')}
+            onDropMaterial={(d, r) => handleFrameAssignMaterial(d, r, 'last')} />
         </div>
       )}
 
@@ -481,124 +491,10 @@ function ShotPreviewCard({
   );
 }
 
-function GlobalReferencesSection({
-  referenceUrls = [], onAddReference, onRemoveReference,
-}: Pick<WorkshopPanelProps, 'referenceUrls' | 'onAddReference' | 'onRemoveReference'>) {
-  const { t } = useTranslation();
-  const [uploading, setUploading] = useState(false);
-  const [pendingRemove, setPendingRemove] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleFileUpload = async (file: File) => {
-    if (referenceUrls.length >= 3) { toast.error('最多 3 张参考图'); return; }
-    setUploading(true);
-    try {
-      const url = await falUploadFile(file, loadConfig().persistFalUploads ?? false);
-      onAddReference(url);
-    } catch {
-      toast.error(t('videoAgent.uploadFailed'));
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-2 min-w-0">
-        <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
-          <Layers className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          <span className="text-xs font-medium shrink-0">{t('videoAgent.globalReferences')}</span>
-          <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">({referenceUrls.length}/3)</span>
-          <span className="text-[10px] text-muted-foreground/50 truncate">· {t('videoAgent.globalReferencesHint')}</span>
-        </div>
-        <button
-          disabled={uploading || referenceUrls.length >= 3}
-          onClick={() => fileInputRef.current?.click()}
-          className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
-        >
-          {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
-          {t('videoAgent.addReference')}
-        </button>
-        <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
-          onChange={e => { const f = e.target.files?.[0]; if (f) handleFileUpload(f); e.target.value = ''; }} />
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        {referenceUrls.map((url, i) => (
-          <div key={i} className="relative group">
-            <img src={url} alt="" className="h-14 w-14 rounded-lg object-cover border border-border/40" />
-            <button
-              onClick={() => setPendingRemove(url)}
-              className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-background border border-border flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:border-destructive"
-            >
-              <X className="h-2.5 w-2.5 text-muted-foreground hover:text-destructive" />
-            </button>
-          </div>
-        ))}
-      </div>
-
-      <AlertDialog open={!!pendingRemove} onOpenChange={open => !open && setPendingRemove(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('videoAgent.removeReferenceTitle')}</AlertDialogTitle>
-            <AlertDialogDescription>{t('videoAgent.removeReferenceDesc')}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { if (pendingRemove) onRemoveReference(pendingRemove); setPendingRemove(null); }}>
-              {t('common.confirm')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
-  );
-}
-
-export function WorkshopPanel({ shots, aspectRatio, videoModelId, frameModelId, referenceUrls = [], onAddReference, onRemoveReference, onUpdateShot, onRemoveShot, onFillPrompt, onDirectSend, onAddShot }: WorkshopPanelProps) {
+export function WorkshopPanel({ shots, aspectRatio, videoModelId, frameModelId, materials, onAddMaterial, onRemoveMaterial, onUpdateShot, onRemoveShot, onFillPrompt, onDirectSend, onAddShot }: WorkshopPanelProps) {
   const { t } = useTranslation();
   const [selectedExample, setSelectedExample] = useState<ShowcaseExample | null>(null);
   const [exampleDialogOpen, setExampleDialogOpen] = useState(false);
-  // Load from localStorage (lazy init so it only runs once)
-  const [materials, setMaterials] = useState<Material[]>(() => {
-    try {
-      const raw = localStorage.getItem('frame-gen-materials');
-      if (!raw) return [];
-      type Saved = { dataUrl?: string; cdnUrl?: string; name: string; usedAt: number };
-      return (JSON.parse(raw) as Saved[]).map(s => ({
-        localUrl: s.dataUrl ?? s.cdnUrl ?? '',
-        dataUrl: s.dataUrl,
-        cdnUrl: s.cdnUrl,
-        name: s.name,
-        usedAt: s.usedAt,
-      })).filter(m => m.localUrl);
-    } catch { return []; }
-  });
-
-  // Persist to localStorage (debounced, max 20, only persistable materials)
-  useEffect(() => {
-    const t = setTimeout(() => {
-      const toSave = materials
-        .filter(m => m.dataUrl || m.cdnUrl)
-        .slice(-20)
-        .map(m => ({ dataUrl: m.dataUrl, cdnUrl: m.cdnUrl, name: m.name, usedAt: m.usedAt }));
-      try { localStorage.setItem('frame-gen-materials', JSON.stringify(toSave)); } catch {}
-    }, 800);
-    return () => clearTimeout(t);
-  }, [materials]);
-
-  const handleAddMaterial = useCallback((material: Material) => {
-    setMaterials(prev => {
-      const idx = prev.findIndex(m => m.localUrl === material.localUrl);
-      // Deep merge so dataUrl/cdnUrl fields are updated when available
-      if (idx >= 0) return prev.map((m, i) => i === idx ? { ...m, ...material, usedAt: Date.now() } : m);
-      return [...prev, { ...material, usedAt: Date.now() }];
-    });
-  }, []);
-
-  const handleRemoveMaterial = useCallback((localUrl: string) => {
-    setMaterials(prev => prev.filter(m => m.localUrl !== localUrl));
-  }, []);
 
   const prevShotsRef = useRef<StoryboardShot[]>([]);
   useEffect(() => {
@@ -663,15 +559,6 @@ export function WorkshopPanel({ shots, aspectRatio, videoModelId, frameModelId, 
       ) : (
         <ScrollArea className="flex-1">
           <div className="p-4 space-y-3">
-            {referenceUrls.length > 0 && (
-              <div className="pb-3 border-b border-border/30">
-                <GlobalReferencesSection
-                  referenceUrls={referenceUrls}
-                  onAddReference={onAddReference}
-                  onRemoveReference={onRemoveReference}
-                />
-              </div>
-            )}
             <div className="flex items-center gap-2 mb-2">
               <Film className="h-4 w-4 text-primary" />
               <h2 className="text-sm font-semibold">{t('videoAgent.storyboardPreview')}</h2>
@@ -680,7 +567,7 @@ export function WorkshopPanel({ shots, aspectRatio, videoModelId, frameModelId, 
             {shots.map(shot => (
               <div key={shot.id} data-shot-id={shot.id}>
                 <ShotPreviewCard shot={shot} shots={shots} aspectRatio={aspectRatio} videoModelId={videoModelId} frameModelId={frameModelId}
-                  materials={materials} onAddMaterial={handleAddMaterial} onRemoveMaterial={handleRemoveMaterial}
+                  materials={materials} onAddMaterial={onAddMaterial} onRemoveMaterial={onRemoveMaterial}
                   onUpdate={onUpdateShot ? (updates) => onUpdateShot(shot.id, updates) : undefined}
                   onDelete={onRemoveShot ? () => onRemoveShot(shot.id) : undefined}
                   onFillPrompt={onFillPrompt} onDirectSend={onDirectSend} />

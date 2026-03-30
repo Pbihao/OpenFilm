@@ -639,7 +639,7 @@ export function useVideoAgent() {
   }, []);
 
   return {
-    messages, shots, isProcessing, config, storySummary,
+    messages, shots, isProcessing, config, storySummary, sessionFolder,
     sendMessage, setConfig, setShots, clearSession, cancelGeneration, updateConfig,
     updateShot, frameModelOptions, videoModelOptions,
     confirmPendingTools, rejectPendingTools,

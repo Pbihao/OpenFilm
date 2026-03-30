@@ -26,12 +26,19 @@ interface AgentChatPanelProps {
   onRejectTools?: () => void;
   referenceUrls: string[];
   onAddReference: (url: string) => void;
+  /** Files injected from the material library drawer */
+  externalPendingFiles?: File[];
+  onExternalFilesConsumed?: () => void;
+  /** Called when the user wants to save a chat image to the material library */
+  onAddToLibrary?: (url: string) => void;
 }
 
 export function AgentChatPanel({
   messages, isProcessing, enableThinking, prefillText,
   onToggleThinking, onSendMessage, onCancel, onPrefillHandled, onConfirmTools, onRejectTools,
   referenceUrls, onAddReference,
+  externalPendingFiles, onExternalFilesConsumed,
+  onAddToLibrary,
 }: AgentChatPanelProps) {
   const { t } = useTranslation();
   const [input, setInput] = useState('');
@@ -51,6 +58,14 @@ export function AgentChatPanel({
   useEffect(() => {
     if (prefillText) { setInput(prefillText); onPrefillHandled?.(); }
   }, [prefillText, onPrefillHandled]);
+
+  // Absorb externally injected files (from material library)
+  useEffect(() => {
+    if (externalPendingFiles && externalPendingFiles.length > 0) {
+      setPendingImages(prev => [...prev, ...externalPendingFiles].slice(0, 5));
+      onExternalFilesConsumed?.();
+    }
+  }, [externalPendingFiles]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const messagesLen = messages.length;
   const lastMsgStreaming = messages[messages.length - 1]?.isStreaming;
@@ -112,6 +127,7 @@ export function AgentChatPanel({
                   onSendMessage={(content) => onSendMessage(content, enableThinking)}
                   onConfirmTools={onConfirmTools}
                   onRejectTools={onRejectTools}
+                  onAddToLibrary={onAddToLibrary}
                 />
               </div>
             );
