@@ -315,7 +315,7 @@ function ShotPreviewCard({
 
       {aspectRatio === '9:16' ? (
         // Portrait layout: [First] [Last] [Video] in one row
-        <div className="px-3 pb-3 grid grid-cols-[1fr_1fr_2fr] gap-1.5">
+        <div className="px-3 pb-3 grid grid-cols-[2fr_2fr_3fr] gap-1.5">
           <FramePreview url={shot.firstFrameUrl} status={shot.firstFrameStatus}
             aspectClass="aspect-[9/16]"
             label={t('videoAgent.firstFrame')} failLabel={t('videoAgent.firstFrameFailed')}
