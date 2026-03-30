@@ -1,5 +1,6 @@
 import type { ToolHandler, ToolDefinition } from './shared';
-import { generateSingleFrame, generateShotFrames, generateAllFramesInternal } from './shared';
+import { generateSingleFrame, generateShotFrames, generateAllFramesInternal, resolveShotIndex, toolError, toolSuccess } from './shared';
+import { assetDisplayUrl } from '@/lib/urlUtils';
 
 export const handleGenerateFrames: ToolHandler = async (ctx, args, tcId) => {
   const config = ctx.configRef.current;
@@ -8,30 +9,28 @@ export const handleGenerateFrames: ToolHandler = async (ctx, args, tcId) => {
 
   // Single shot
   if (args.shot_index != null) {
-    const idx = args.shot_index - 1;
-    if (idx < 0 || idx >= ctx.shotsRef.current.length) {
-      return JSON.stringify({ success: false, error: `Invalid shot_index: ${args.shot_index}` });
-    }
+    const idx = resolveShotIndex(args.shot_index, ctx.shotsRef.current);
+    if (idx === null) return toolError(`Invalid shot_index: ${args.shot_index}`);
     ctx.updateToolProgress(tcId, `Shot ${args.shot_index} frames...`);
 
     if (frameType === 'last') {
       const shot = ctx.shotsRef.current[idx];
-      if (!force && shot.extractedLastFrameUrl) {
-        return JSON.stringify({ success: true, shot_index: args.shot_index, lastFrameUrl: shot.extractedLastFrameUrl, skipped: true });
+      if (!force && shot.lastFrame) {
+        return toolSuccess({ shot_index: args.shot_index, lastFrameUrl: assetDisplayUrl(shot.lastFrame), skipped: true });
       }
       const url = await generateSingleFrame(ctx, idx, 'last', config);
-      return JSON.stringify({ success: !!url, shot_index: args.shot_index, lastFrameUrl: url });
+      return url ? toolSuccess({ shot_index: args.shot_index, lastFrameUrl: url }) : toolError('Frame generation failed');
     }
     if (frameType === 'first') {
       const shot = ctx.shotsRef.current[idx];
-      if (!force && shot.firstFrameUrl) {
-        return JSON.stringify({ success: true, shot_index: args.shot_index, firstFrameUrl: shot.firstFrameUrl, skipped: true });
+      if (!force && shot.firstFrame) {
+        return toolSuccess({ shot_index: args.shot_index, firstFrameUrl: assetDisplayUrl(shot.firstFrame), skipped: true });
       }
       const url = await generateSingleFrame(ctx, idx, 'first', config);
-      return JSON.stringify({ success: !!url, shot_index: args.shot_index, firstFrameUrl: url });
+      return url ? toolSuccess({ shot_index: args.shot_index, firstFrameUrl: url }) : toolError('Frame generation failed');
     }
     const result = await generateShotFrames(ctx, idx, config, force);
-    return JSON.stringify({ success: true, shot_index: args.shot_index, ...result });
+    return toolSuccess({ shot_index: args.shot_index, ...result });
   }
 
   // All shots

@@ -30,6 +30,9 @@ import { VideoDurationSelector } from '@/components/VideoDurationSelector';
 import { Trash2 } from 'lucide-react';
 import { falUploadFile } from '@/lib/fal';
 import { getBlobUrl } from '@/lib/videoBlobCache';
+import { assetDisplayUrl, isPublicUrl } from '@/lib/urlUtils';
+import type { CachedAsset } from '@/types/storyboard';
+import { useWorkshopActions } from '@/contexts/WorkshopActionsContext';
 
 interface WorkshopPanelProps {
   shots: StoryboardShot[];
@@ -41,8 +44,6 @@ interface WorkshopPanelProps {
   onRemoveMaterial: (id: string) => void;
   onUpdateShot?: (shotId: string, updates: Partial<StoryboardShot>) => void;
   onRemoveShot?: (shotId: string) => void;
-  onFillPrompt?: (text: string) => void;
-  onDirectSend?: (text: string) => void;
   onAddShot?: () => void;
 }
 
@@ -130,17 +131,17 @@ function PromptField({
 }
 
 function ShotPreviewCard({
-  shot, shots, aspectRatio, videoModelId, frameModelId, materials, onUpdate, onDelete, onFillPrompt, onDirectSend, onAddMaterial, onRemoveMaterial,
+  shot, shots, aspectRatio, videoModelId, frameModelId, materials, onUpdate, onDelete, onAddMaterial, onRemoveMaterial,
 }: {
   shot: StoryboardShot; shots: StoryboardShot[]; aspectRatio: string; videoModelId: string; frameModelId: string;
   materials: Material[];
   onUpdate?: (updates: Partial<StoryboardShot>) => void;
-  onDelete?: () => void; onFillPrompt?: (text: string) => void;
-  onDirectSend?: (text: string) => void;
+  onDelete?: () => void;
   onAddMaterial: (material: Material) => void;
   onRemoveMaterial: (id: string) => void;
 }) {
   const { t } = useTranslation();
+  const { fillPrompt, directSend, attachFrameToChat } = useWorkshopActions();
   const aspectClass = getAspectClass(aspectRatio);
   const [showFramePrompts, setShowFramePrompts] = useState(false);
   const [localPrompt, setLocalPrompt] = useState(shot.prompt);
@@ -200,22 +201,34 @@ function ShotPreviewCard({
 
   const handleFrameDelete = (type: 'first' | 'last') => {
     if (!onUpdate) return;
-    if (type === 'first') onUpdate({ firstFrameUrl: undefined, firstFrameStatus: 'idle' });
-    else onUpdate({ extractedLastFrameUrl: undefined, lastFrameStatus: 'idle' });
+    if (type === 'first') onUpdate({ firstFrame: undefined, firstFrameStatus: 'idle' });
+    else onUpdate({ lastFrame: undefined, lastFrameStatus: 'idle' });
   };
 
-  const handleFrameAssignMaterial = (displayUrl: string, refUrl: string, type: 'first' | 'last') => {
+  const handleFrameAssignMaterial = async (displayUrl: string, refUrl: string, type: 'first' | 'last') => {
     if (!onUpdate) return;
-    if (type === 'first') onUpdate({ firstFrameUrl: displayUrl, firstFrameRefUrl: refUrl, firstFrameStatus: 'completed' });
-    else onUpdate({ extractedLastFrameUrl: displayUrl, lastFrameRefUrl: refUrl, lastFrameStatus: 'completed' });
+    let cdnUrl = refUrl;
+    if (!isPublicUrl(refUrl)) {
+      // Local path — upload to fal.ai so it can be used in API calls
+      try {
+        const blob = await fetch(displayUrl).then(r => r.blob());
+        cdnUrl = await falUploadFile(new File([blob], 'frame.png', { type: blob.type || 'image/png' }));
+      } catch { /* keep local URL as fallback — display works, API calls will fail */ }
+    }
+    const asset: CachedAsset = {
+      remoteUrl: cdnUrl,
+      localUrl: cdnUrl !== displayUrl ? displayUrl : undefined,
+    };
+    if (type === 'first') onUpdate({ firstFrame: asset, firstFrameStatus: 'completed' });
+    else onUpdate({ lastFrame: asset, lastFrameStatus: 'completed' });
   };
 
   const handleFrameUpload = async (file: File, type: 'first' | 'last') => {
     if (!onUpdate) return;
     try {
       const url = await falUploadFile(file);
-      if (type === 'first') onUpdate({ firstFrameUrl: url, firstFrameStatus: 'completed' });
-      else onUpdate({ extractedLastFrameUrl: url, lastFrameStatus: 'completed' });
+      if (type === 'first') onUpdate({ firstFrame: { remoteUrl: url }, firstFrameStatus: 'completed' });
+      else onUpdate({ lastFrame: { remoteUrl: url }, lastFrameStatus: 'completed' });
     } catch { toast.error(t('videoAgent.uploadFailed')); }
   };
 
@@ -243,7 +256,7 @@ function ShotPreviewCard({
               onDurationChange={(d) => onUpdate?.({ duration: d })} />
           ) : null;
         })()}
-        {shot.firstFrameUrl && <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">{t('videoAgent.firstFrameReady')}</span>}
+        {shot.firstFrame && <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">{t('videoAgent.firstFrameReady')}</span>}
         {shot.videoUrl && <span className="text-[10px] bg-accent text-accent-foreground px-1.5 py-0.5 rounded-full">{t('videoAgent.videoReady')}</span>}
         {onDelete && (
           <AlertDialog>
@@ -322,24 +335,26 @@ function ShotPreviewCard({
       {aspectRatio === '9:16' ? (
         // Portrait layout: [First] [Last] [Video] in one row
         <div className="px-3 pb-3 grid grid-cols-[2fr_2fr_3fr] gap-1.5">
-          <FramePreview url={shot.firstFrameUrl} status={shot.firstFrameStatus}
+          <FramePreview url={assetDisplayUrl(shot.firstFrame)} status={shot.firstFrameStatus}
             aspectClass="aspect-[9/16]"
             label={t('videoAgent.firstFrame')} failLabel={t('videoAgent.firstFrameFailed')}
-            onClick={() => shot.firstFrameUrl && openFrameLightbox(shot.firstFrameUrl)}
-            onDownload={shot.firstFrameUrl ? () => handleFrameDownload(shot.firstFrameUrl!, `shot-${shot.index}-first.png`) : undefined}
-            onDelete={shot.firstFrameUrl ? () => handleFrameDelete('first') : undefined}
+            onClick={() => shot.firstFrame && openFrameLightbox(assetDisplayUrl(shot.firstFrame)!)}
+            onDownload={shot.firstFrame ? () => handleFrameDownload(assetDisplayUrl(shot.firstFrame)!, `shot-${shot.index}-first.png`) : undefined}
+            onDelete={shot.firstFrame ? () => handleFrameDelete('first') : undefined}
             onUpload={(file) => handleFrameUpload(file, 'first')}
             onRegenerate={() => handleFrameRegenerate('first')}
-            onDropMaterial={(d, r) => handleFrameAssignMaterial(d, r, 'first')} />
-          <FramePreview url={shot.extractedLastFrameUrl} status={shot.lastFrameStatus}
+            onDropMaterial={(d, r) => handleFrameAssignMaterial(d, r, 'first')}
+            onAttachToChat={shot.firstFrame ? () => attachFrameToChat(assetDisplayUrl(shot.firstFrame)!) : undefined} />
+          <FramePreview url={assetDisplayUrl(shot.lastFrame)} status={shot.lastFrameStatus}
             aspectClass="aspect-[9/16]"
             label={t('videoAgent.lastFrame')} failLabel={t('videoAgent.lastFrameFailed')}
-            onClick={() => shot.extractedLastFrameUrl && openFrameLightbox(shot.extractedLastFrameUrl)}
-            onDownload={shot.extractedLastFrameUrl ? () => handleFrameDownload(shot.extractedLastFrameUrl!, `shot-${shot.index}-last.png`) : undefined}
-            onDelete={shot.extractedLastFrameUrl ? () => handleFrameDelete('last') : undefined}
+            onClick={() => shot.lastFrame && openFrameLightbox(assetDisplayUrl(shot.lastFrame)!)}
+            onDownload={shot.lastFrame ? () => handleFrameDownload(assetDisplayUrl(shot.lastFrame)!, `shot-${shot.index}-last.png`) : undefined}
+            onDelete={shot.lastFrame ? () => handleFrameDelete('last') : undefined}
             onUpload={(file) => handleFrameUpload(file, 'last')}
             onRegenerate={() => handleFrameRegenerate('last')}
-            onDropMaterial={(d, r) => handleFrameAssignMaterial(d, r, 'last')} />
+            onDropMaterial={(d, r) => handleFrameAssignMaterial(d, r, 'last')}
+            onAttachToChat={shot.lastFrame ? () => attachFrameToChat(assetDisplayUrl(shot.lastFrame)!) : undefined} />
           <div className={cn('rounded-lg overflow-hidden bg-muted border border-border/50 group relative', aspectClass, shot.videoUrl && 'cursor-pointer')}
             onClick={() => shot.videoUrl && setVideoDialogOpen(true)}>
             {shot.videoUrl ? (
@@ -369,7 +384,7 @@ function ShotPreviewCard({
                     {shot.status === 'generating' && (
                       <div className="mt-1 h-3.5 w-3.5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
                     )}
-                    {shot.status !== 'generating' && shot.firstFrameUrl && (
+                    {shot.status !== 'generating' && shot.firstFrame && (
                       <div className="flex gap-1 mt-2">
                         <button type="button"
                           className="h-7 w-7 rounded bg-muted-foreground/10 hover:bg-muted-foreground/20 flex items-center justify-center text-muted-foreground/60 hover:text-muted-foreground transition-colors"
@@ -380,7 +395,7 @@ function ShotPreviewCard({
                         <button type="button"
                           className="h-7 w-7 rounded bg-muted-foreground/10 hover:bg-muted-foreground/20 flex items-center justify-center text-muted-foreground/60 hover:text-muted-foreground transition-colors"
                           title={t('videoAgent.generateVideo')}
-                          onClick={(e) => { e.stopPropagation(); (onDirectSend || onFillPrompt)?.(`generate video for shot ${shot.index}`); }}>
+                          onClick={(e) => { e.stopPropagation(); directSend(`generate video for shot ${shot.index}`); }}>
                           <Sparkles className="h-3.5 w-3.5" />
                         </button>
                       </div>
@@ -396,14 +411,15 @@ function ShotPreviewCard({
       ) : (
         // Landscape layout: [First] [Video] / [Last] [Video]
         <div className="px-3 pb-3 grid grid-cols-[1fr_1.5fr] grid-rows-2 gap-1.5">
-          <FramePreview url={shot.firstFrameUrl} status={shot.firstFrameStatus}
+          <FramePreview url={assetDisplayUrl(shot.firstFrame)} status={shot.firstFrameStatus}
             label={t('videoAgent.firstFrame')} failLabel={t('videoAgent.firstFrameFailed')}
-            onClick={() => shot.firstFrameUrl && openFrameLightbox(shot.firstFrameUrl)}
-            onDownload={shot.firstFrameUrl ? () => handleFrameDownload(shot.firstFrameUrl!, `shot-${shot.index}-first.png`) : undefined}
-            onDelete={shot.firstFrameUrl ? () => handleFrameDelete('first') : undefined}
+            onClick={() => shot.firstFrame && openFrameLightbox(assetDisplayUrl(shot.firstFrame)!)}
+            onDownload={shot.firstFrame ? () => handleFrameDownload(assetDisplayUrl(shot.firstFrame)!, `shot-${shot.index}-first.png`) : undefined}
+            onDelete={shot.firstFrame ? () => handleFrameDelete('first') : undefined}
             onUpload={(file) => handleFrameUpload(file, 'first')}
             onRegenerate={() => handleFrameRegenerate('first')}
-            onDropMaterial={(d, r) => handleFrameAssignMaterial(d, r, 'first')} />
+            onDropMaterial={(d, r) => handleFrameAssignMaterial(d, r, 'first')}
+            onAttachToChat={shot.firstFrame ? () => attachFrameToChat(assetDisplayUrl(shot.firstFrame)!) : undefined} />
           <div className={cn('rounded-lg overflow-hidden bg-muted border border-border/50 row-span-2 group relative', aspectClass, shot.videoUrl && 'cursor-pointer')}
             onClick={() => shot.videoUrl && setVideoDialogOpen(true)}>
             {shot.videoUrl ? (
@@ -433,7 +449,7 @@ function ShotPreviewCard({
                     {shot.status === 'generating' && (
                       <div className="mt-1 h-3.5 w-3.5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
                     )}
-                    {shot.status !== 'generating' && shot.firstFrameUrl && (
+                    {shot.status !== 'generating' && shot.firstFrame && (
                       <div className="flex gap-1 mt-2">
                         <button type="button"
                           className="h-7 w-7 rounded bg-muted-foreground/10 hover:bg-muted-foreground/20 flex items-center justify-center text-muted-foreground/60 hover:text-muted-foreground transition-colors"
@@ -444,7 +460,7 @@ function ShotPreviewCard({
                         <button type="button"
                           className="h-7 w-7 rounded bg-muted-foreground/10 hover:bg-muted-foreground/20 flex items-center justify-center text-muted-foreground/60 hover:text-muted-foreground transition-colors"
                           title={t('videoAgent.generateVideo')}
-                          onClick={(e) => { e.stopPropagation(); (onDirectSend || onFillPrompt)?.(`generate video for shot ${shot.index}`); }}>
+                          onClick={(e) => { e.stopPropagation(); directSend(`generate video for shot ${shot.index}`); }}>
                           <Sparkles className="h-3.5 w-3.5" />
                         </button>
                       </div>
@@ -456,14 +472,15 @@ function ShotPreviewCard({
               </div>
             )}
           </div>
-          <FramePreview url={shot.extractedLastFrameUrl} status={shot.lastFrameStatus}
+          <FramePreview url={assetDisplayUrl(shot.lastFrame)} status={shot.lastFrameStatus}
             label={t('videoAgent.lastFrame')} failLabel={t('videoAgent.lastFrameFailed')}
-            onClick={() => shot.extractedLastFrameUrl && openFrameLightbox(shot.extractedLastFrameUrl)}
-            onDownload={shot.extractedLastFrameUrl ? () => handleFrameDownload(shot.extractedLastFrameUrl!, `shot-${shot.index}-last.png`) : undefined}
-            onDelete={shot.extractedLastFrameUrl ? () => handleFrameDelete('last') : undefined}
+            onClick={() => shot.lastFrame && openFrameLightbox(assetDisplayUrl(shot.lastFrame)!)}
+            onDownload={shot.lastFrame ? () => handleFrameDownload(assetDisplayUrl(shot.lastFrame)!, `shot-${shot.index}-last.png`) : undefined}
+            onDelete={shot.lastFrame ? () => handleFrameDelete('last') : undefined}
             onUpload={(file) => handleFrameUpload(file, 'last')}
             onRegenerate={() => handleFrameRegenerate('last')}
-            onDropMaterial={(d, r) => handleFrameAssignMaterial(d, r, 'last')} />
+            onDropMaterial={(d, r) => handleFrameAssignMaterial(d, r, 'last')}
+            onAttachToChat={shot.lastFrame ? () => attachFrameToChat(assetDisplayUrl(shot.lastFrame)!) : undefined} />
         </div>
       )}
 
@@ -481,17 +498,16 @@ function ShotPreviewCard({
         onAddMaterial={onAddMaterial}
         onRemoveMaterial={onRemoveMaterial}
         onGenerated={(url) => {
-          const urlKey = frameDialogType === 'first' ? 'firstFrameUrl' : 'extractedLastFrameUrl';
-          const refUrlKey = frameDialogType === 'first' ? 'firstFrameRefUrl' : 'lastFrameRefUrl';
+          const assetKey = frameDialogType === 'first' ? 'firstFrame' : 'lastFrame';
           const statusKey = frameDialogType === 'first' ? 'firstFrameStatus' : 'lastFrameStatus';
-          onUpdate?.({ [urlKey]: url, [refUrlKey]: url, [statusKey]: 'completed' });
+          onUpdate?.({ [assetKey]: { remoteUrl: url }, [statusKey]: 'completed' });
         }}
       />
     </div>
   );
 }
 
-export function WorkshopPanel({ shots, aspectRatio, videoModelId, frameModelId, materials, onAddMaterial, onRemoveMaterial, onUpdateShot, onRemoveShot, onFillPrompt, onDirectSend, onAddShot }: WorkshopPanelProps) {
+export function WorkshopPanel({ shots, aspectRatio, videoModelId, frameModelId, materials, onAddMaterial, onRemoveMaterial, onUpdateShot, onRemoveShot, onAddShot }: WorkshopPanelProps) {
   const { t } = useTranslation();
   const [selectedExample, setSelectedExample] = useState<ShowcaseExample | null>(null);
   const [exampleDialogOpen, setExampleDialogOpen] = useState(false);
@@ -569,8 +585,7 @@ export function WorkshopPanel({ shots, aspectRatio, videoModelId, frameModelId, 
                 <ShotPreviewCard shot={shot} shots={shots} aspectRatio={aspectRatio} videoModelId={videoModelId} frameModelId={frameModelId}
                   materials={materials} onAddMaterial={onAddMaterial} onRemoveMaterial={onRemoveMaterial}
                   onUpdate={onUpdateShot ? (updates) => onUpdateShot(shot.id, updates) : undefined}
-                  onDelete={onRemoveShot ? () => onRemoveShot(shot.id) : undefined}
-                  onFillPrompt={onFillPrompt} onDirectSend={onDirectSend} />
+                  onDelete={onRemoveShot ? () => onRemoveShot(shot.id) : undefined} />
               </div>
             ))}
             {onAddShot && (

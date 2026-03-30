@@ -2,7 +2,7 @@
  * FramePreview — Reusable frame preview thumbnail with action overlays
  */
 import { useRef, useState } from 'react';
-import { ImageIcon, AlertCircle, Download, Trash2, Upload, RefreshCw, Sparkles } from 'lucide-react';
+import { ImageIcon, AlertCircle, Download, Trash2, Upload, RefreshCw, Sparkles, Paperclip } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import {
@@ -23,11 +23,12 @@ interface FramePreviewProps {
   onUpload?: (file: File) => void;
   onRegenerate?: () => void;
   onDropMaterial?: (displayUrl: string, refUrl: string) => void;
+  onAttachToChat?: () => void;
 }
 
 export function FramePreview({
   url, status, label, failLabel, aspectClass = 'aspect-video', onClick,
-  onDownload, onDelete, onUpload, onRegenerate, onDropMaterial,
+  onDownload, onDelete, onUpload, onRegenerate, onDropMaterial, onAttachToChat,
 }: FramePreviewProps) {
   const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -62,16 +63,17 @@ export function FramePreview({
             )}
             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors">
               <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                {onAttachToChat && (
+                  <button type="button" onClick={(e) => { stopProp(e); onAttachToChat(); }}
+                    title="Attach to chat"
+                    className="h-7 w-7 rounded bg-background/80 backdrop-blur-sm flex items-center justify-center text-foreground hover:bg-background transition-colors">
+                    <Paperclip className="h-3.5 w-3.5" />
+                  </button>
+                )}
                 {onDownload && (
                   <button type="button" onClick={(e) => { stopProp(e); onDownload(); }}
                     className="h-7 w-7 rounded bg-background/80 backdrop-blur-sm flex items-center justify-center text-foreground hover:bg-background transition-colors">
                     <Download className="h-3.5 w-3.5" />
-                  </button>
-                )}
-                {onUpload && (
-                  <button type="button" onClick={(e) => { stopProp(e); fileInputRef.current?.click(); }}
-                    className="h-7 w-7 rounded bg-background/80 backdrop-blur-sm flex items-center justify-center text-foreground hover:bg-background transition-colors">
-                    <Upload className="h-3.5 w-3.5" />
                   </button>
                 )}
                 {onRegenerate && (

@@ -1,4 +1,4 @@
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { useEffect } from 'react';
 
 interface ImageLightboxProps {
   images: string[];
@@ -7,21 +7,26 @@ interface ImageLightboxProps {
 }
 
 export function ImageLightbox({ images, open, onOpenChange }: ImageLightboxProps) {
-  if (images.length === 0) return null;
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onOpenChange(false); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [open, onOpenChange]);
+
+  if (!open || images.length === 0) return null;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl p-0 bg-black/95 border-none overflow-hidden">
-        <DialogTitle className="sr-only">Image Preview</DialogTitle>
-        <DialogDescription className="sr-only">Full-size image view</DialogDescription>
-        <div className="relative w-full flex items-center justify-center p-4">
-          <img
-            src={images[0]}
-            alt=""
-            className="max-w-full max-h-[85vh] object-contain rounded-lg"
-          />
-        </div>
-      </DialogContent>
-    </Dialog>
+    <div
+      className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center cursor-zoom-out"
+      onClick={() => onOpenChange(false)}
+    >
+      <img
+        src={images[0]}
+        alt=""
+        className="max-w-[90vw] max-h-[90vh] object-contain select-none"
+        onClick={e => e.stopPropagation()}
+      />
+    </div>
   );
 }

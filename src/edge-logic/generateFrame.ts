@@ -18,45 +18,39 @@ export function buildFrameReferences(
   shots: StoryboardShot[],
   shotIndex: number,
   frameType: 'first' | 'last',
-  globalRefs: string[],
+  globalRefUrls: string[],
 ): ReferenceImage[] {
   const refs: ReferenceImage[] = [];
   const prev = shotIndex > 0 ? shots[shotIndex - 1] : null;
   const MAX_REFS = 3;
 
-  // Always prefer the *Ref URL (original fal.ai CDN URL) over the display URL.
-  // Display URLs may be localhost paths (/api/local-data?...) that fal.ai servers can't reach.
   const shot = shots[shotIndex];
 
   if (frameType === 'last') {
     // Slot 1 (fixed): current shot's first frame — fal.ai edit uses this as the visual base
-    const firstUrl = shot.firstFrameRefUrl ?? shot.firstFrameUrl;
-    if (firstUrl) refs.push({ url: firstUrl, role: 'current_first_frame' });
+    if (shot.firstFrame) refs.push({ url: shot.firstFrame.remoteUrl, role: 'current_first_frame' });
 
     // Remaining slots: global refs, then prev_last for cross-shot continuity
-    for (const url of globalRefs) {
+    for (const url of globalRefUrls) {
       if (refs.length >= MAX_REFS) break;
       refs.push({ url, role: 'global_reference' });
     }
-    if (refs.length < MAX_REFS && prev) {
-      const prevLastUrl = prev.lastFrameRefUrl ?? prev.extractedLastFrameUrl;
-      if (prevLastUrl) refs.push({ url: prevLastUrl, role: 'previous_last_frame' });
+    if (refs.length < MAX_REFS && prev?.lastFrame) {
+      refs.push({ url: prev.lastFrame.remoteUrl, role: 'previous_last_frame' });
     }
   } else {
     // Slot 1 (fixed): previous shot's last frame — most direct visual bridge between shots
-    if (prev) {
-      const prevLastUrl = prev.lastFrameRefUrl ?? prev.extractedLastFrameUrl;
-      if (prevLastUrl) refs.push({ url: prevLastUrl, role: 'previous_last_frame' });
+    if (prev?.lastFrame) {
+      refs.push({ url: prev.lastFrame.remoteUrl, role: 'previous_last_frame' });
     }
 
     // Remaining slots: global refs, then prev_first as fallback
-    for (const url of globalRefs) {
+    for (const url of globalRefUrls) {
       if (refs.length >= MAX_REFS) break;
       refs.push({ url, role: 'global_reference' });
     }
-    if (refs.length < MAX_REFS && prev) {
-      const prevFirstUrl = prev.firstFrameRefUrl ?? prev.firstFrameUrl;
-      if (prevFirstUrl) refs.push({ url: prevFirstUrl, role: 'previous_first_frame' });
+    if (refs.length < MAX_REFS && prev?.firstFrame) {
+      refs.push({ url: prev.firstFrame.remoteUrl, role: 'previous_first_frame' });
     }
   }
 

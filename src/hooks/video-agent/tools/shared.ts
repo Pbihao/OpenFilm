@@ -6,13 +6,34 @@
 import type { StoryboardShot, StoryboardConfig } from '@/types/storyboard';
 import type { ToolCall } from '@/types/video-agent';
 import { generateFrame, buildFrameReferences, type ReferenceImage } from '@/edge-logic/generateFrame';
+import { isPublicUrl, assetDisplayUrl } from '@/lib/urlUtils';
 import { VIDEO_MODEL_CAPABILITIES, VIDEO_MODEL_ENDPOINTS, resolveVideoEndpoint } from '@/types/video-generation';
-import { falQueue } from '@/lib/fal';
+import { falQueue, falUploadFile } from '@/lib/fal';
 import { prefetchAndCache } from '@/lib/videoBlobCache';
 import { writeSessionFile } from '@/lib/localFs';
 
 export type { ToolCall };
 export type { ReferenceImage };
+
+// ─── Tool response helpers ─────────────────────────────────────────────────────
+
+export const toolSuccess = (data: Record<string, unknown>): string =>
+  JSON.stringify({ success: true, ...data });
+
+export const toolError = (error: string): string =>
+  JSON.stringify({ success: false, error });
+
+// ─── Shot index helper ─────────────────────────────────────────────────────────
+
+/**
+ * Converts a 1-based user-facing shot_index to a validated 0-based array index.
+ * Returns null if out of range — callers should return toolError() immediately.
+ */
+export function resolveShotIndex(shot_index: number, shots: StoryboardShot[]): number | null {
+  const idx = shot_index - 1;
+  if (idx < 0 || idx >= shots.length) return null;
+  return idx;
+}
 
 // ─── Tool context ─────────────────────────────────────────────────────────────
 
@@ -44,7 +65,7 @@ export interface ToolDefinition {
    * Whether this tool requires user confirmation before running.
    * Pass a function for arg-dependent cases (e.g. edit_shot only expensive when regenerate is set).
    */
-  isExpensive?: boolean | ((args: Record<string, any>) => boolean);
+  isExpensive?: boolean | ((args: Record<string, any>, ctx: ToolContext) => boolean);
 }
 
 // ─── Shared state helpers ─────────────────────────────────────────────────────
@@ -63,6 +84,30 @@ export function replaceAllShots(ctx: ToolContext, shots: StoryboardShot[]) {
 
 // ─── Frame generation helpers ─────────────────────────────────────────────────
 
+/**
+ * Resolve all global reference entries to public CDN URLs that fal.ai servers can fetch.
+ * Refs with an existing apiUrl are used as-is; local-only refs are uploaded via falUploadFile.
+ */
+async function resolveGlobalRefUrls(refs: StoryboardConfig['referenceImageUrls'], signal?: AbortSignal): Promise<string[]> {
+  const results: string[] = [];
+  for (const ref of refs) {
+    if (signal?.aborted) break;
+    if (isPublicUrl(ref.apiUrl)) {
+      results.push(ref.apiUrl!);
+    } else {
+      try {
+        const blob = await fetch(ref.displayUrl, { signal }).then(r => r.blob());
+        const file = new File([blob], 'reference.png', { type: blob.type || 'image/png' });
+        const url = await falUploadFile(file);
+        results.push(url);
+      } catch {
+        // Skip refs that fail to upload — don't block frame generation
+      }
+    }
+  }
+  return results;
+}
+
 export async function generateSingleFrame(
   ctx: ToolContext,
   shotIndex: number,
@@ -71,8 +116,7 @@ export async function generateSingleFrame(
 ): Promise<string | undefined> {
   const shot = ctx.shotsRef.current[shotIndex];
   const statusKey = frameType === 'first' ? 'firstFrameStatus' : 'lastFrameStatus';
-  const urlKey = frameType === 'first' ? 'firstFrameUrl' : 'extractedLastFrameUrl';
-  const refUrlKey = frameType === 'first' ? 'firstFrameRefUrl' : 'lastFrameRefUrl';
+  const assetKey = frameType === 'first' ? 'firstFrame' : 'lastFrame';
   const promptKey = frameType === 'first' ? 'firstFramePrompt' : 'lastFramePrompt';
 
   const signal = ctx.abortControllerRef.current?.signal;
@@ -80,8 +124,9 @@ export async function generateSingleFrame(
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
     updateShot(ctx, shotIndex, { [statusKey]: 'generating', error: undefined });
 
-    const refs = buildFrameReferences(ctx.shotsRef.current, shotIndex, frameType, config.referenceImageUrls);
-    const url = await generateFrame({
+    const globalRefUrls = await resolveGlobalRefUrls(config.referenceImageUrls, signal);
+    const refs = buildFrameReferences(ctx.shotsRef.current, shotIndex, frameType, globalRefUrls);
+    const remoteUrl = await generateFrame({
       prompt: shot[promptKey],
       referenceImages: refs,
       aspectRatio: config.aspectRatio,
@@ -92,25 +137,18 @@ export async function generateSingleFrame(
       shotPrompt: shot.prompt,
     }, signal);
 
-    // Persist locally so FAL CDN expiry doesn't break display
-    let displayUrl = url;
-    if (url.startsWith('http')) {
-      try {
-        const blob = await fetch(url, { signal }).then(r => r.blob());
-        const ext = url.includes('.png') ? 'png' : 'jpg';
-        const filename = `frames/shot${shotIndex + 1}_${frameType}_frame_${Date.now()}.${ext}`;
-        const localUrl = await writeSessionFile(ctx.sessionFolder, filename, blob);
-        if (localUrl) {
-          displayUrl = localUrl;
-        }
-        // No local server: keep the original fal.ai CDN URL.
-        // data: URLs must NOT be used here — fal.ai rejects them as image_urls/imageUrl
-        // in subsequent edit/video requests, causing 422s across the whole shot chain.
-      } catch { /* keep FAL URL on fetch failure */ }
+    updateShot(ctx, shotIndex, { [assetKey]: { remoteUrl }, [statusKey]: 'completed' });
+
+    // Save locally for debugging — fire-and-forget, never used for display or API calls
+    if (remoteUrl.startsWith('http')) {
+      const ext = remoteUrl.includes('.png') ? 'png' : 'jpg';
+      const filename = `frames/shot${shotIndex + 1}_${frameType}_frame_${Date.now()}.${ext}`;
+      fetch(remoteUrl).then(r => r.blob())
+        .then(blob => writeSessionFile(ctx.sessionFolder, filename, blob))
+        .catch(() => {});
     }
-    // Store: display URL (local or CDN) for UI, original CDN URL for fal.ai API references
-    updateShot(ctx, shotIndex, { [urlKey]: displayUrl, [refUrlKey]: url, [statusKey]: 'completed' });
-    return displayUrl;
+
+    return remoteUrl;
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err;
     const errMsg = err instanceof Error ? err.message : String(err);
@@ -130,18 +168,18 @@ export async function generateShotFrames(
   const shot = ctx.shotsRef.current[shotIndex];
   const result: { firstFrameUrl?: string; lastFrameUrl?: string } = {};
 
-  if (forceRegenerate || !shot.firstFrameUrl) {
+  if (forceRegenerate || !shot.firstFrame) {
     result.firstFrameUrl = await generateSingleFrame(ctx, shotIndex, 'first', config);
   } else {
-    result.firstFrameUrl = shot.firstFrameUrl;
+    result.firstFrameUrl = assetDisplayUrl(shot.firstFrame);
   }
 
   if (!firstOnly) {
     const updatedShot = ctx.shotsRef.current[shotIndex];
-    if ((forceRegenerate || !updatedShot.extractedLastFrameUrl) && updatedShot.lastFramePrompt) {
+    if ((forceRegenerate || !updatedShot.lastFrame) && updatedShot.lastFramePrompt) {
       result.lastFrameUrl = await generateSingleFrame(ctx, shotIndex, 'last', config);
-    } else if (updatedShot.extractedLastFrameUrl) {
-      result.lastFrameUrl = updatedShot.extractedLastFrameUrl;
+    } else if (updatedShot.lastFrame) {
+      result.lastFrameUrl = assetDisplayUrl(updatedShot.lastFrame);
     } else if (!updatedShot.lastFramePrompt) {
       updateShot(ctx, shotIndex, {
         lastFrameStatus: 'failed',
@@ -158,7 +196,7 @@ export async function generateAllFramesInternal(
 ): Promise<string> {
   const config = ctx.configRef.current;
   const totalShots = ctx.shotsRef.current.length;
-  if (totalShots === 0) return JSON.stringify({ success: false, error: 'No shots to generate frames for' });
+  if (totalShots === 0) return toolError('No shots to generate frames for');
 
   const frameResults: { shot: number; firstFrameUrl?: string; lastFrameUrl?: string }[] = [];
 
@@ -167,11 +205,11 @@ export async function generateAllFramesInternal(
     if (frameType === 'last') {
       ctx.updateToolProgress(tcId, `Shot ${i + 1}/${totalShots} last frame...`);
       const currentShot = ctx.shotsRef.current[i];
-      if (forceRegenerate || !currentShot.extractedLastFrameUrl) {
+      if (forceRegenerate || !currentShot.lastFrame) {
         const url = await generateSingleFrame(ctx, i, 'last', config);
         frameResults.push({ shot: i + 1, lastFrameUrl: url });
       } else {
-        frameResults.push({ shot: i + 1, lastFrameUrl: currentShot.extractedLastFrameUrl });
+        frameResults.push({ shot: i + 1, lastFrameUrl: assetDisplayUrl(currentShot.lastFrame) });
       }
     } else {
       const label = frameType === 'first' ? 'first frame' : 'frames';
@@ -181,7 +219,7 @@ export async function generateAllFramesInternal(
     }
   }
 
-  return JSON.stringify({ success: true, total_shots: totalShots, frames: frameResults, frame_type: frameType });
+  return toolSuccess({ total_shots: totalShots, frames: frameResults, frame_type: frameType });
 }
 
 // ─── Video generation helpers ─────────────────────────────────────────────────
@@ -201,11 +239,11 @@ export async function generateVideoForShot(
   const duration = shot.duration ?? config.duration;
   const validDuration = caps.supportedDurations.includes(duration) ? duration : caps.supportedDurations[0];
 
-  // Prefer the CDN ref URL — display URLs may be localhost paths fal.ai can't reach
-  const firstFrameApiUrl = shot.firstFrameRefUrl ?? shot.firstFrameUrl;
-  const lastFrameApiUrl = shot.lastFrameRefUrl ?? shot.extractedLastFrameUrl;
-  const hasFirstFrame = !!firstFrameApiUrl && !firstFrameApiUrl.startsWith('data:');
-  const hasLastFrame = !!lastFrameApiUrl && !lastFrameApiUrl.startsWith('data:') && caps.supportsFirstLastFrame;
+  // remoteUrl is always the CDN URL — safe to pass directly to fal.ai
+  const firstFrameApiUrl = shot.firstFrame?.remoteUrl;
+  const lastFrameApiUrl = shot.lastFrame?.remoteUrl;
+  const hasFirstFrame = isPublicUrl(firstFrameApiUrl);
+  const hasLastFrame = isPublicUrl(lastFrameApiUrl) && caps.supportsFirstLastFrame;
 
   const endpoint = resolveVideoEndpoint(modelId, hasFirstFrame, hasLastFrame);
   if (!endpoint) return { error: `No endpoint config for model: ${modelId}` };
@@ -255,7 +293,7 @@ export async function generateAllVideosInternal(
   ctx: ToolContext, tcId: string, skipExisting: boolean, shotIndices?: number[],
 ): Promise<string> {
   const currentShots = ctx.shotsRef.current;
-  if (currentShots.length === 0) return JSON.stringify({ success: false, error: 'No shots' });
+  if (currentShots.length === 0) return toolError('No shots');
 
   const indices = shotIndices ?? currentShots.map((_, i) => i);
   let completed = 0;
@@ -276,5 +314,5 @@ export async function generateAllVideosInternal(
     else { failed++; videoResults.push({ shot: i + 1, error: result.error }); }
   }
 
-  return JSON.stringify({ success: true, completed, failed, total: indices.length, videos: videoResults });
+  return toolSuccess({ completed, failed, total: indices.length, videos: videoResults });
 }

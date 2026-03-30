@@ -3,6 +3,7 @@
  */
 import { useState } from 'react';
 import { Sparkles, ChevronRight, Wrench, CheckCircle2, XCircle, ChevronDown, Check, X, Download, Plus } from 'lucide-react';
+import { ImageLightbox } from '@/components/ImageLightbox';
 import { useTranslation } from 'react-i18next';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
@@ -100,11 +101,14 @@ function ToolConfirmationCard({
 }) {
   const { t } = useTranslation();
   const isPending = confirmationStatus === 'pending';
+  const isDestructive = pendingToolCalls.some(tc =>
+    tc.function.name === 'reset_workspace' || tc.function.name === 'plan_story'
+  );
 
   return (
-    <div className="mt-2 rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+    <div className={`mt-2 rounded-lg border p-3 space-y-2 ${isDestructive ? 'border-destructive/40 bg-destructive/5' : 'border-border bg-muted/30'}`}>
       <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-        <span>{t('videoAgent.confirmGeneration')}</span>
+        <span>{isDestructive ? t('videoAgent.confirmDestructive') : t('videoAgent.confirmGeneration')}</span>
       </div>
       <div className="space-y-1 pl-5">
         {pendingToolCalls.map((tc, i) => (
@@ -116,7 +120,7 @@ function ToolConfirmationCard({
       </div>
       {isPending ? (
         <div className="flex items-center gap-2 pt-1">
-          <Button size="sm" variant="default" className="h-7 text-xs gap-1" onClick={onConfirm}>
+          <Button size="sm" variant={isDestructive ? 'destructive' : 'default'} className="h-7 text-xs gap-1" onClick={onConfirm}>
             <Check className="h-3 w-3" />{t('videoAgent.confirmButton')}
           </Button>
           <Button size="sm" variant="ghost" className="h-7 text-xs gap-1" onClick={onReject}>
@@ -156,20 +160,25 @@ interface AssistantMessageBubbleProps {
 }
 
 export function AssistantMessageBubble({ message, isLastAssistant, onSendMessage, onConfirmTools, onRejectTools, onAddToLibrary }: AssistantMessageBubbleProps) {
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   if (message.isLoading) return <BouncingDots />;
 
   return (
     <div className="min-w-0">
       {message.thinking && <ThinkingBlock content={message.thinking} />}
-      {message.isStreaming && !message.content && <BouncingDots />}
-      {message.content && (
+      {message.isStreaming && !message.content?.trim() && <BouncingDots />}
+      {message.content?.trim() && (
         <MarkdownContent content={message.content} isStreaming={message.isStreaming} className="text-sm" />
       )}
       {message.imageUrls && message.imageUrls.length > 0 && (
         <div className="flex flex-wrap gap-2 mt-2">
           {message.imageUrls.map((url, i) => (
             <div key={i} className="relative group/img">
-              <img src={url} alt="" className="max-w-[200px] rounded-lg border border-border object-cover" />
+              <img
+                src={url} alt=""
+                className="max-w-[200px] rounded-lg border border-border object-cover cursor-zoom-in"
+                onClick={() => setLightboxUrl(url)}
+              />
               <div className="absolute bottom-1.5 right-1.5 flex gap-1 opacity-0 group-hover/img:opacity-100 transition-opacity">
                 <button
                   onClick={() => downloadImage(url, `generated-${i + 1}.png`)}
@@ -192,6 +201,7 @@ export function AssistantMessageBubble({ message, isLastAssistant, onSendMessage
           ))}
         </div>
       )}
+      <ImageLightbox images={lightboxUrl ? [lightboxUrl] : []} open={!!lightboxUrl} onOpenChange={open => { if (!open) setLightboxUrl(null); }} />
       {message.toolStatus && message.toolStatus.length > 0 && <ToolStatusBlock toolStatus={message.toolStatus} />}
       {message.pendingToolCalls && message.pendingToolCalls.length > 0 && (
         <ToolConfirmationCard

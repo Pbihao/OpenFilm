@@ -1,12 +1,10 @@
 import type { StoryboardShot } from '@/types/storyboard';
 import type { ToolHandler, ToolDefinition } from './shared';
-import { updateShot, generateSingleFrame } from './shared';
+import { updateShot, generateSingleFrame, resolveShotIndex, toolError, toolSuccess } from './shared';
 
 export const handleEditShot: ToolHandler = async (ctx, args) => {
-  const idx = (args.shot_index || 1) - 1;
-  if (idx < 0 || idx >= ctx.shotsRef.current.length) {
-    return JSON.stringify({ success: false, error: `Invalid shot_index: ${args.shot_index}` });
-  }
+  const idx = resolveShotIndex(args.shot_index || 1, ctx.shotsRef.current);
+  if (idx === null) return toolError(`Invalid shot_index: ${args.shot_index}`);
 
   const patch: Partial<StoryboardShot> = {};
   if (args.prompt !== undefined) {
@@ -17,20 +15,18 @@ export const handleEditShot: ToolHandler = async (ctx, args) => {
   }
   if (args.first_frame_prompt !== undefined) {
     patch.firstFramePrompt = args.first_frame_prompt;
-    patch.firstFrameUrl = undefined;
-    patch.firstFrameRefUrl = undefined;
+    patch.firstFrame = undefined;
     patch.firstFrameStatus = 'idle';
   }
   if (args.last_frame_prompt !== undefined) {
     patch.lastFramePrompt = args.last_frame_prompt;
-    patch.extractedLastFrameUrl = undefined;
-    patch.lastFrameRefUrl = undefined;
+    patch.lastFrame = undefined;
     patch.lastFrameStatus = 'idle';
   }
   updateShot(ctx, idx, patch);
 
   const regenerate = args.regenerate;
-  if (!regenerate) return JSON.stringify({ success: true, shot_index: args.shot_index });
+  if (!regenerate) return toolSuccess({ shot_index: args.shot_index });
 
   const config = ctx.configRef.current;
   const frameTypes: Array<'first' | 'last'> =
@@ -43,7 +39,7 @@ export const handleEditShot: ToolHandler = async (ctx, args) => {
     results[`${frameType}FrameUrl`] = await generateSingleFrame(ctx, idx, frameType, config);
   }
 
-  return JSON.stringify({ success: true, shot_index: args.shot_index, ...results });
+  return toolSuccess({ shot_index: args.shot_index, ...results });
 };
 
 export const toolDef: ToolDefinition = {

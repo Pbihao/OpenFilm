@@ -1,7 +1,7 @@
 import { splitStory } from '@/edge-logic/splitStory';
 import { createShot } from '../agentSession';
 import type { ToolHandler, ToolDefinition } from './shared';
-import { replaceAllShots } from './shared';
+import { replaceAllShots, toolError, toolSuccess } from './shared';
 
 export const handlePlanStory: ToolHandler = async (ctx, args) => {
   const shotCount = Math.min(Math.max(args.shot_count || ctx.configRef.current.shotCount || 3, 1), 5);
@@ -17,7 +17,7 @@ export const handlePlanStory: ToolHandler = async (ctx, args) => {
       description: args.story,
       shotCount,
       aspectRatio,
-      referenceImageUrls: ctx.configRef.current.referenceImageUrls,
+      referenceImageUrls: ctx.configRef.current.referenceImageUrls.filter(r => r.apiUrl).map(r => r.apiUrl!),
     });
 
     const newShots = result.shots.map((s, i) =>
@@ -36,8 +36,7 @@ export const handlePlanStory: ToolHandler = async (ctx, args) => {
       ctx.setConfig(ctx.configRef.current);
     }
 
-    return JSON.stringify({
-      success: true,
+    return toolSuccess({
       shot_count: newShots.length,
       shots: newShots.map((s, i) => ({
         index: i + 1, prompt: s.prompt,
@@ -45,7 +44,7 @@ export const handlePlanStory: ToolHandler = async (ctx, args) => {
       })),
     });
   } catch (err) {
-    return JSON.stringify({ success: false, error: err instanceof Error ? err.message : String(err) });
+    return toolError(err instanceof Error ? err.message : String(err));
   }
 };
 
@@ -72,4 +71,6 @@ export const toolDef: ToolDefinition = {
     },
   },
   execute: handlePlanStory,
+  /** Only require confirmation when overwriting an existing storyboard */
+  isExpensive: (_args, ctx) => ctx.shotsRef.current.length > 0,
 };

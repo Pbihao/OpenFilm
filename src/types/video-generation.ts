@@ -3,6 +3,7 @@
  */
 
 export interface VideoModelCapabilities {
+  displayName: string;
   supportedDurations: number[];
   supportsAudio: boolean;
   supportsFirstLastFrame: boolean;
@@ -15,6 +16,7 @@ export interface VideoModelCapabilities {
 
 export const VIDEO_MODEL_CAPABILITIES: Record<string, VideoModelCapabilities> = {
   'fal-ai/veo3.1': {
+    displayName: 'Veo 3.1',
     supportedDurations: [4, 6, 8],
     supportsAudio: true,
     supportsFirstLastFrame: true,
@@ -25,6 +27,7 @@ export const VIDEO_MODEL_CAPABILITIES: Record<string, VideoModelCapabilities> = 
     i2vDefaultAspectRatio: 'auto',
   },
   'fal-ai/veo3.1/fast': {
+    displayName: 'Veo 3.1 Fast',
     supportedDurations: [4, 6, 8],
     supportsAudio: true,
     supportsFirstLastFrame: true,
@@ -35,6 +38,7 @@ export const VIDEO_MODEL_CAPABILITIES: Record<string, VideoModelCapabilities> = 
     i2vDefaultAspectRatio: 'auto',
   },
   'fal-ai/kling-video/v2.6/pro': {
+    displayName: 'Kling v2.6 Pro',
     supportedDurations: [5, 10],
     supportsAudio: true,
     supportsFirstLastFrame: true,
@@ -43,6 +47,7 @@ export const VIDEO_MODEL_CAPABILITIES: Record<string, VideoModelCapabilities> = 
     defaultAspectRatio: '16:9',
   },
   'fal-ai/kling-video/v3/pro': {
+    displayName: 'Kling v3 Pro',
     supportedDurations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
     supportsAudio: true,
     supportsFirstLastFrame: true,
@@ -51,6 +56,7 @@ export const VIDEO_MODEL_CAPABILITIES: Record<string, VideoModelCapabilities> = 
     defaultAspectRatio: '16:9',
   },
   'fal-ai/bytedance/seedance/v1.5/pro': {
+    displayName: 'Seedance v1.5 Pro',
     supportedDurations: [4, 5, 6, 7, 8, 9, 10, 11, 12],
     supportsAudio: true,
     supportsFirstLastFrame: true,

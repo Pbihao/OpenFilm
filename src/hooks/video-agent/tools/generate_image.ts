@@ -1,9 +1,10 @@
 import { generateFrame } from '@/edge-logic/generateFrame';
 import { writeSessionFile } from '@/lib/localFs';
 import type { ToolHandler, ToolDefinition, ReferenceImage } from './shared';
+import { toolError, toolSuccess } from './shared';
 
 export const handleGenerateImage: ToolHandler = async (ctx, args) => {
-  if (!args.prompt) return JSON.stringify({ success: false, error: 'Prompt is required' });
+  if (!args.prompt) return toolError('Prompt is required');
 
   try {
     const signal = ctx.abortControllerRef.current?.signal;
@@ -23,9 +24,9 @@ export const handleGenerateImage: ToolHandler = async (ctx, args) => {
     const filename = `images/chat_${Date.now()}.${falUrl.includes('.png') ? 'png' : 'jpg'}`;
     const blob = await fetch(falUrl, { signal }).then(r => r.blob());
     const localUrl = await writeSessionFile(ctx.sessionFolder, filename, blob);
-    return JSON.stringify({ success: true, image_url: localUrl ?? falUrl });
+    return toolSuccess({ image_url: localUrl ?? falUrl });
   } catch (err) {
-    return JSON.stringify({ success: false, error: err instanceof Error ? err.message : String(err) });
+    return toolError(err instanceof Error ? err.message : String(err));
   }
 };
 

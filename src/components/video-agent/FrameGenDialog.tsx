@@ -27,6 +27,7 @@ import { generateFrame } from '@/edge-logic/generateFrame';
 import type { StoryboardShot } from '@/types/storyboard';
 import type { ReferenceImage } from '@/edge-logic/generateFrame';
 import type { Material } from '@/types/material';
+import { assetDisplayUrl } from '@/lib/urlUtils';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -166,13 +167,12 @@ export function FrameGenDialog({
   // ─── Import from shots ───────────────────────────────────────────────────
 
   const importShotFrame = useCallback((s: StoryboardShot, type: 'first' | 'last') => {
-    const displayUrl = type === 'first' ? s.firstFrameUrl : s.extractedLastFrameUrl;
-    const refUrl = type === 'first' ? s.firstFrameRefUrl : s.lastFrameRefUrl;
-    if (!displayUrl) return;
+    const asset = type === 'first' ? s.firstFrame : s.lastFrame;
+    if (!asset) return;
     const mat: Material = {
       id: crypto.randomUUID(),
-      displayUrl,
-      apiUrl: refUrl ?? (displayUrl.startsWith('https://') ? displayUrl : undefined),
+      displayUrl: assetDisplayUrl(asset)!,
+      apiUrl: asset.remoteUrl,
       name: `Shot ${s.index} ${type === 'first' ? '首帧' : '尾帧'}`,
       addedAt: Date.now(),
     };
@@ -218,8 +218,8 @@ export function FrameGenDialog({
   const frameLabel = frameType === 'first' ? t('videoAgent.firstFrame') : t('videoAgent.lastFrame');
 
   const shotFrames = shots.flatMap(s => [
-    s.firstFrameUrl ? { shot: s, type: 'first' as const, url: s.firstFrameUrl, refUrl: s.firstFrameRefUrl } : null,
-    s.extractedLastFrameUrl ? { shot: s, type: 'last' as const, url: s.extractedLastFrameUrl, refUrl: s.lastFrameRefUrl } : null,
+    s.firstFrame ? { shot: s, type: 'first' as const, url: assetDisplayUrl(s.firstFrame)! } : null,
+    s.lastFrame ? { shot: s, type: 'last' as const, url: assetDisplayUrl(s.lastFrame)! } : null,
   ]).filter((x): x is NonNullable<typeof x> => x !== null);
 
   // ─── Render ─────────────────────────────────────────────────────────────────

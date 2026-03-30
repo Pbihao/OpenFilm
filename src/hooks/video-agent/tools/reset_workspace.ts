@@ -1,16 +1,14 @@
 import type { ToolHandler, ToolDefinition } from './shared';
-import { replaceAllShots, generateAllFramesInternal, generateAllVideosInternal } from './shared';
+import { replaceAllShots, generateAllFramesInternal, generateAllVideosInternal, toolError, toolSuccess } from './shared';
 
 export const handleResetWorkspace: ToolHandler = async (ctx, args, tcId) => {
-  if (ctx.shotsRef.current.length === 0) {
-    return JSON.stringify({ success: false, error: 'No shots to regenerate' });
-  }
+  if (ctx.shotsRef.current.length === 0) return toolError('No shots to regenerate');
 
   ctx.updateToolProgress(tcId, 'Clearing...');
   const resetShots = ctx.shotsRef.current.map(s => ({
     ...s,
-    firstFrameUrl: undefined, firstFrameRefUrl: undefined, firstFrameStatus: 'idle' as const,
-    extractedLastFrameUrl: undefined, lastFrameRefUrl: undefined, lastFrameStatus: 'idle' as const,
+    firstFrame: undefined, firstFrameStatus: 'idle' as const,
+    lastFrame: undefined, lastFrameStatus: 'idle' as const,
     videoUrl: undefined, thumbnailUrl: undefined, status: 'idle' as const,
     error: undefined,
   }));
@@ -23,10 +21,10 @@ export const handleResetWorkspace: ToolHandler = async (ctx, args, tcId) => {
     ctx.updateToolProgress(tcId, 'Generating videos...');
     const videosResult = await generateAllVideosInternal(ctx, tcId, false);
     const videosData = JSON.parse(videosResult);
-    return JSON.stringify({ success: true, frames: framesData.frames, videos: videosData.videos });
+    return toolSuccess({ frames: framesData.frames, videos: videosData.videos });
   }
 
-  return JSON.stringify({ success: true, frames: framesData.frames, include_videos: false });
+  return toolSuccess({ frames: framesData.frames, include_videos: false });
 };
 
 export const toolDef: ToolDefinition = {
@@ -36,7 +34,8 @@ export const toolDef: ToolDefinition = {
       name: 'reset_workspace',
       description:
         'Clear ALL generated frames and videos, then regenerate everything from scratch. ' +
-        'Use this when the user says "start over", "redo everything", or is dissatisfied with overall results.',
+        'ONLY use when user says "start over", "redo everything", or is dissatisfied with ALL results. ' +
+        'NEVER use this for a single shot — use generate_videos(shot_index=X) or generate_frames(shot_index=X) instead.',
       parameters: {
         type: 'object',
         properties: {

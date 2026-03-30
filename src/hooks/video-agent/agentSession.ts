@@ -3,7 +3,8 @@
  */
 
 import type { AgentMessage } from '@/types/video-agent';
-import type { StoryboardShot, StoryboardConfig } from '@/types/storyboard';
+import type { StoryboardShot, StoryboardConfig, ReferenceEntry } from '@/types/storyboard';
+import { makeRefEntry } from '@/lib/urlUtils';
 
 export const DEFAULT_CONFIG: StoryboardConfig = {
   frameModelId: 'fal-ai/nano-banana-2',
@@ -115,16 +116,6 @@ export interface PersistedSession {
   savedAt: number;
 }
 
-/** @deprecated Use splitMessagesForCompaction + buildHeuristicSummary directly */
-export function compactMessages(
-  messages: AgentMessage[],
-): { messages: AgentMessage[]; summary: string | null } {
-  const { toKeep, toSummarize } = splitMessagesForCompaction(messages);
-  if (toSummarize.length === 0) return { messages, summary: null };
-  const summary = buildHeuristicSummary(toSummarize);
-  return { messages: toKeep, summary: summary || null };
-}
-
 export function saveSession(session: PersistedSession) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
@@ -137,6 +128,28 @@ export function loadSession(): PersistedSession | null {
     if (!raw) return null;
     const session = JSON.parse(raw) as PersistedSession;
     session.config = { ...DEFAULT_CONFIG, ...session.config };
+    // Migrate old string[] format → ReferenceEntry[]
+    const refs = session.config.referenceImageUrls as unknown as (string | ReferenceEntry)[];
+    session.config.referenceImageUrls = refs.map(r =>
+      typeof r === 'string' ? makeRefEntry(r) : r
+    );
+    // Migrate old flat shot URL fields → CachedAsset
+    session.shots = session.shots.map((s: any) => {
+      const shot = { ...s };
+      if (!shot.firstFrame && (shot.firstFrameUrl || shot.firstFrameRefUrl)) {
+        const remoteUrl = shot.firstFrameRefUrl ?? shot.firstFrameUrl;
+        const localUrl = (shot.firstFrameRefUrl && shot.firstFrameUrl !== shot.firstFrameRefUrl) ? shot.firstFrameUrl : undefined;
+        shot.firstFrame = { remoteUrl, localUrl };
+      }
+      if (!shot.lastFrame && (shot.extractedLastFrameUrl || shot.lastFrameRefUrl)) {
+        const remoteUrl = shot.lastFrameRefUrl ?? shot.extractedLastFrameUrl;
+        const localUrl = (shot.lastFrameRefUrl && shot.extractedLastFrameUrl !== shot.lastFrameRefUrl) ? shot.extractedLastFrameUrl : undefined;
+        shot.lastFrame = { remoteUrl, localUrl };
+      }
+      delete shot.firstFrameUrl; delete shot.firstFrameRefUrl;
+      delete shot.extractedLastFrameUrl; delete shot.lastFrameRefUrl;
+      return shot;
+    });
     return session;
   } catch {
     return null;

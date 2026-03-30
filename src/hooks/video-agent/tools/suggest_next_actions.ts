@@ -1,7 +1,8 @@
 import type { ToolHandler, ToolDefinition } from './shared';
+import { toolSuccess } from './shared';
 
 export const handleSuggestNextActions: ToolHandler = async (_ctx, args) => {
-  return JSON.stringify({ success: true, suggestions: args.suggestions || [] });
+  return toolSuccess({ suggestions: args.suggestions || [] });
 };
 
 export const toolDef: ToolDefinition = {

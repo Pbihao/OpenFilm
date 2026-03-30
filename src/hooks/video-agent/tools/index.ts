@@ -10,6 +10,7 @@
 
 import type { ToolCall } from '@/types/video-agent';
 import type { ToolContext, ToolDefinition } from './shared';
+import { toolError } from './shared';
 
 import { toolDef as planStory }          from './plan_story';
 import { toolDef as generateFrames }     from './generate_frames';
@@ -48,10 +49,10 @@ const handlerMap = new Map(TOOL_REGISTRY.map(t => [t.schema.function.name, t.exe
 const alwaysExpensiveNames = new Set(
   TOOL_REGISTRY.filter(t => t.isExpensive === true).map(t => t.schema.function.name)
 );
-// Arg-dependent expensive tools (function predicate)
+// Arg+context-dependent expensive tools (function predicate)
 const conditionalExpensiveDefs = new Map(
   TOOL_REGISTRY
-    .filter((t): t is ToolDefinition & { isExpensive: (args: Record<string, any>) => boolean } =>
+    .filter((t): t is ToolDefinition & { isExpensive: (args: Record<string, any>, ctx: ToolContext) => boolean } =>
       typeof t.isExpensive === 'function'
     )
     .map(t => [t.schema.function.name, t.isExpensive])
@@ -60,21 +61,21 @@ const conditionalExpensiveDefs = new Map(
 export async function executeTool(ctx: ToolContext, toolCall: ToolCall): Promise<string> {
   const name = toolCall.function.name;
   const handler = handlerMap.get(name);
-  if (!handler) return JSON.stringify({ success: false, error: `Unknown tool: ${name}` });
+  if (!handler) return toolError(`Unknown tool: ${name}`);
 
   let args: Record<string, any>;
   try { args = JSON.parse(toolCall.function.arguments); }
-  catch { return JSON.stringify({ success: false, error: `Invalid tool arguments for ${name}` }); }
+  catch { return toolError(`Invalid tool arguments for ${name}`); }
 
   return handler(ctx, args, toolCall.id);
 }
 
 // ─── Expensive-tool check — O(1) via pre-built maps ──────────────────────────
 
-export function isExpensiveTool(toolCall: ToolCall): boolean {
+export function isExpensiveTool(toolCall: ToolCall, ctx: ToolContext): boolean {
   const name = toolCall.function.name;
   if (alwaysExpensiveNames.has(name)) return true;
   const predicate = conditionalExpensiveDefs.get(name);
   if (!predicate) return false;
-  try { return predicate(JSON.parse(toolCall.function.arguments)); } catch { return false; }
+  try { return predicate(JSON.parse(toolCall.function.arguments), ctx); } catch { return false; }
 }

@@ -1,7 +1,7 @@
 /**
  * WorkshopToolbar — Header controls (standalone, simplified)
  */
-import { ImageIcon, Film, Trash2, Settings, Scissors } from 'lucide-react';
+import { ImageIcon, Film, Trash2, Settings, Scissors, Volume2, VolumeX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { useTranslation } from 'react-i18next';
@@ -16,6 +16,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { StoryboardConfig } from '@/types/storyboard';
+import { VIDEO_MODEL_CAPABILITIES } from '@/types/video-generation';
 import { useNavigate } from 'react-router-dom';
 
 interface ModelOption {
@@ -106,6 +107,19 @@ export function WorkshopToolbar({
         <SimpleModelSelector models={videoModelOptions} selectedId={config.videoModelId}
           onSelect={(id) => onUpdateConfig({ videoModelId: id })} icon={Film}
           label={t('videoAgent.videoModel')} disabled={isProcessing} />
+      )}
+
+      {VIDEO_MODEL_CAPABILITIES[config.videoModelId]?.supportsAudio && (
+        <Button
+          variant="ghost" size="sm"
+          className={`h-7 gap-1.5 px-2 text-xs ${config.withAudio ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+          onClick={() => onUpdateConfig({ withAudio: !config.withAudio })}
+          disabled={isProcessing}
+          title={config.withAudio ? t('videoAgent.withAudioOn') : t('videoAgent.withAudioOff')}
+        >
+          {config.withAudio ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+          <span>{t('videoAgent.withAudio')}</span>
+        </Button>
       )}
 
       {hasMessages && (

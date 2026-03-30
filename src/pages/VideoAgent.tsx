@@ -17,6 +17,8 @@ import { createShot } from '@/hooks/video-agent/agentSession';
 import { isConfigured } from '@/config';
 import { useNavigate } from 'react-router-dom';
 import type { Material } from '@/types/material';
+import { isPublicUrl } from '@/lib/urlUtils';
+import { WorkshopActionsProvider } from '@/contexts/WorkshopActionsContext';
 
 const StoryboardExport = lazy(() =>
   import('@/components/storyboard/StoryboardExport').then(m => ({ default: m.StoryboardExport }))
@@ -34,7 +36,7 @@ export default function VideoAgentPage() {
     messages, shots, isProcessing, config, sendMessage, clearSession,
     cancelGeneration, updateConfig, updateShot, setShots,
     frameModelOptions, videoModelOptions, confirmPendingTools, rejectPendingTools,
-    addReference, sessionFolder,
+    addReference, removeReference, sessionFolder,
   } = useVideoAgent();
 
   const { materials, addMaterial, removeMaterial, clearMaterials } = useMaterials();
@@ -75,16 +77,47 @@ export default function VideoAgentPage() {
     setExternalChatFiles(prev => [...prev, file]);
   }, []);
 
+  const handleAttachFrameToChat = useCallback(async (url: string) => {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const ext = blob.type.includes('png') ? 'png' : 'jpg';
+      const file = new File([blob], `frame.${ext}`, { type: blob.type });
+      setExternalChatFiles(prev => [...prev, file]);
+    } catch { /* silently ignore fetch failures */ }
+  }, []);
+
   // Save a generated image (URL) directly into the material library
   const handleAddToLibrary = useCallback((url: string) => {
     addMaterial({
       id: crypto.randomUUID(),
       displayUrl: url,
-      apiUrl: url.startsWith('https://') ? url : undefined,
+      apiUrl: isPublicUrl(url) ? url : undefined,
       name: `generated-${Date.now()}.png`,
       addedAt: Date.now(),
     });
   }, [addMaterial]);
+
+  // Mirror new reference images into the material library automatically
+  useEffect(() => {
+    for (const ref of config.referenceImageUrls) {
+      if (!materials.some(m => m.displayUrl === ref.displayUrl || (ref.apiUrl && m.apiUrl === ref.apiUrl))) {
+        addMaterial({
+          id: crypto.randomUUID(),
+          displayUrl: ref.displayUrl,
+          apiUrl: ref.apiUrl,
+          name: `reference-${Date.now()}.png`,
+          addedAt: Date.now(),
+        });
+      }
+    }
+  }, [config.referenceImageUrls]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const workshopActions = useMemo(() => ({
+    fillPrompt: handleFillPrompt,
+    directSend: handleDirectSend,
+    attachFrameToChat: handleAttachFrameToChat,
+  }), [handleFillPrompt, handleDirectSend, handleAttachFrameToChat]);
 
   const canExport = useMemo(() => shots.some(s => s.videoUrl), [shots]);
 
@@ -129,24 +162,26 @@ export default function VideoAgentPage() {
             onRemoveMaterial={removeMaterial}
             onClearAll={clearMaterials}
             onAttachToChat={handleAttachToChat}
+            references={config.referenceImageUrls}
+            onRemoveReference={removeReference}
           />
           <ResizablePanelGroup direction="horizontal" className="flex-1">
             <ResizablePanel defaultSize={55} minSize={30}>
               <div className="flex flex-col h-full overflow-hidden">
-                <WorkshopPanel
-                  shots={shots}
-                  aspectRatio={config.aspectRatio}
-                  videoModelId={config.videoModelId}
-                  frameModelId={config.frameModelId}
-                  materials={materials}
-                  onAddMaterial={addMaterial}
-                  onRemoveMaterial={removeMaterial}
-                  onUpdateShot={updateShot}
-                  onRemoveShot={handleRemoveShot}
-                  onFillPrompt={handleFillPrompt}
-                  onDirectSend={handleDirectSend}
-                  onAddShot={handleAddShot}
-                />
+                <WorkshopActionsProvider value={workshopActions}>
+                  <WorkshopPanel
+                    shots={shots}
+                    aspectRatio={config.aspectRatio}
+                    videoModelId={config.videoModelId}
+                    frameModelId={config.frameModelId}
+                    materials={materials}
+                    onAddMaterial={addMaterial}
+                    onRemoveMaterial={removeMaterial}
+                    onUpdateShot={updateShot}
+                    onRemoveShot={handleRemoveShot}
+                    onAddShot={handleAddShot}
+                  />
+                </WorkshopActionsProvider>
               </div>
             </ResizablePanel>
             <ResizableHandle withHandle />
@@ -169,7 +204,7 @@ export default function VideoAgentPage() {
                   onCancel={cancelGeneration}
                   onConfirmTools={confirmPendingTools}
                   onRejectTools={rejectPendingTools}
-                  referenceUrls={config.referenceImageUrls}
+                  references={config.referenceImageUrls}
                   onAddReference={addReference}
                   externalPendingFiles={externalChatFiles}
                   onExternalFilesConsumed={() => setExternalChatFiles([])}

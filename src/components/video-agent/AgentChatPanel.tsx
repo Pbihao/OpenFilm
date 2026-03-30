@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 
 import type { AgentMessage } from '@/types/video-agent';
+import type { ReferenceEntry } from '@/types/storyboard';
 import { UserMessageBubble } from '@/components/video-agent/UserMessageBubble';
 import { AssistantMessageBubble } from '@/components/video-agent/AssistantMessageBubble';
 import { PillButton } from '@/components/ui/pill-button';
@@ -24,8 +25,8 @@ interface AgentChatPanelProps {
   onCancel?: () => void;
   onConfirmTools?: () => void;
   onRejectTools?: () => void;
-  referenceUrls: string[];
-  onAddReference: (url: string) => void;
+  references: ReferenceEntry[];
+  onAddReference: (entry: ReferenceEntry) => void;
   /** Files injected from the material library drawer */
   externalPendingFiles?: File[];
   onExternalFilesConsumed?: () => void;
@@ -36,7 +37,7 @@ interface AgentChatPanelProps {
 export function AgentChatPanel({
   messages, isProcessing, enableThinking, prefillText,
   onToggleThinking, onSendMessage, onCancel, onPrefillHandled, onConfirmTools, onRejectTools,
-  referenceUrls, onAddReference,
+  references, onAddReference,
   externalPendingFiles, onExternalFilesConsumed,
   onAddToLibrary,
 }: AgentChatPanelProps) {
@@ -118,7 +119,7 @@ export function AgentChatPanel({
           )}
           {messages.map((msg, msgIndex) => {
             if (msg.role === 'tool') return null;
-            if (msg.role === 'user') return <UserMessageBubble key={msg.id} message={msg} referenceUrls={referenceUrls} onAddReference={onAddReference} />;
+            if (msg.role === 'user') return <UserMessageBubble key={msg.id} message={msg} references={references} onAddReference={onAddReference} />;
             return (
               <div key={msg.id}>
                 <AssistantMessageBubble

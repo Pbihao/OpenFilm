@@ -4,7 +4,7 @@
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
-import type { StoryboardShot, StoryboardConfig, ShotStatus, FrameStatus } from '@/types/storyboard';
+import type { StoryboardShot, StoryboardConfig, ShotStatus, FrameStatus, ReferenceEntry } from '@/types/storyboard';
 import type { AgentMessage, ToolCall, SuggestedAction } from '@/types/video-agent';
 import { VIDEO_MODEL_CAPABILITIES, STORYBOARD_VIDEO_MODELS } from '@/types/video-generation';
 import { writeSessionFile, makeSessionFolder } from '@/lib/localFs';
@@ -12,7 +12,8 @@ import { clearVideoCache } from '@/lib/videoBlobCache';
 import { falUploadFile } from '@/lib/fal';
 import { loadConfig } from '@/config';
 
-import { DEFAULT_CONFIG, createShot, saveSession, loadSession, clearStoredSession, splitMessagesForCompaction, buildHeuristicSummary, summarizeWithLLM } from './agentSession';
+import i18n from '@/i18n';
+import { DEFAULT_CONFIG, saveSession, loadSession, clearStoredSession, splitMessagesForCompaction, buildHeuristicSummary, summarizeWithLLM } from './agentSession';
 import { streamAgentResponse, trimMessagesForContext } from './agentStream';
 import { executeTool, isExpensiveTool, type ToolContext } from './agentTools';
 
@@ -24,18 +25,9 @@ const FRAME_MODELS = [
   { id: 'fal-ai/nano-banana-pro', name: 'Nano Banana Pro' },
 ];
 
-const VIDEO_MODEL_DISPLAY_NAMES: Record<string, string> = {
-  'fal-ai/veo3.1':                      'Veo 3.1',
-  'fal-ai/veo3.1/fast':                 'Veo 3.1 Fast',
-  'fal-ai/kling-video/v2.6/pro':        'Kling v2.6 Pro',
-  'fal-ai/kling-video/v3/pro':          'Kling v3 Pro',
-  'fal-ai/kling-video/v3/standard':     'Kling v3 Standard',
-  'fal-ai/bytedance/seedance/v1.5/pro': 'Seedance v1.5 Pro',
-};
-
 const VIDEO_MODELS = STORYBOARD_VIDEO_MODELS.map(id => ({
   id,
-  name: VIDEO_MODEL_DISPLAY_NAMES[id] ?? id,
+  name: VIDEO_MODEL_CAPABILITIES[id]?.displayName ?? id,
 }));
 
 // ============= Tool round processing =============
@@ -70,8 +62,8 @@ async function processToolRound(
 
   if (realToolCalls.length === 0) return { toolMessages: [], realToolCalls, suggestions };
 
-  const immediateCalls = realToolCalls.filter(tc => !isExpensiveTool(tc));
-  const expensiveCalls = realToolCalls.filter(isExpensiveTool);
+  const immediateCalls = realToolCalls.filter(tc => !isExpensiveTool(tc, toolCtx));
+  const expensiveCalls = realToolCalls.filter(tc => isExpensiveTool(tc, toolCtx));
 
   const allResults: { tool_call_id: string; content: string }[] = [];
   for (const tc of immediateCalls) {
@@ -213,10 +205,10 @@ export function useVideoAgent() {
 
   // Instant-save whenever shots gain new frame/video URLs (fires even during isProcessing)
   const shotsUrlsKey = shots
-    .map(s => [s.firstFrameUrl, s.extractedLastFrameUrl, s.videoUrl].filter(Boolean).join(','))
+    .map(s => [s.firstFrame?.remoteUrl, s.lastFrame?.remoteUrl, s.videoUrl].filter(Boolean).join(','))
     .join('|');
   useEffect(() => {
-    const hasGeneratedContent = shots.some(s => s.firstFrameUrl || s.videoUrl);
+    const hasGeneratedContent = shots.some(s => s.firstFrame || s.videoUrl);
     if (!hasGeneratedContent) return;
     const cleanMessages = messagesRef.current.filter(m => !m.isLoading && !m.isStreaming);
     const sessionData = {
@@ -336,7 +328,9 @@ export function useVideoAgent() {
   const buildShotsContext = useCallback(() => {
     return shotsRef.current.map(s => ({
       prompt: s.prompt, firstFramePrompt: s.firstFramePrompt, lastFramePrompt: s.lastFramePrompt,
-      firstFrameUrl: s.firstFrameUrl, lastFrameUrl: s.extractedLastFrameUrl, videoUrl: s.videoUrl, status: s.status,
+      firstFrameUrl: s.firstFrame ? (s.firstFrame.localUrl ?? s.firstFrame.remoteUrl) : undefined,
+      lastFrameUrl: s.lastFrame ? (s.lastFrame.localUrl ?? s.lastFrame.remoteUrl) : undefined,
+      videoUrl: s.videoUrl, status: s.status,
     }));
   }, []);
 
@@ -559,22 +553,23 @@ export function useVideoAgent() {
         const shots = shotsRef.current;
         let fallback: SuggestedAction[] = [];
         if (shots.length > 0) {
-          const hasFrames = shots.some(s => s.firstFrameUrl);
+          const hasFrames = shots.some(s => s.firstFrame);
           const hasVideos = shots.some(s => s.videoUrl);
+          const t = (k: string) => i18n.t(`videoAgent.${k}`);
           if (!hasFrames) {
             fallback = [
-              { label: '开始生成关键帧', message: '确认生成关键帧' },
-              { label: '修改分镜内容', message: '我想修改分镜内容' },
+              { label: t('suggestGenerateFrames'), message: t('suggestGenerateFramesMsg') },
+              { label: t('suggestEditStoryboard'), message: t('suggestEditStoryboardMsg') },
             ];
           } else if (!hasVideos) {
             fallback = [
-              { label: '生成视频', message: '开始生成视频' },
-              { label: '查看关键帧', message: '展示当前关键帧' },
+              { label: t('suggestGenerateVideos'), message: t('suggestGenerateVideosMsg') },
+              { label: t('suggestViewFrames'), message: t('suggestViewFramesMsg') },
             ];
           } else {
             fallback = [
-              { label: '重新编辑', message: '我想修改某个镜头' },
-              { label: '重新生成视频', message: '重新生成所有视频' },
+              { label: t('suggestReEdit'), message: t('suggestReEditMsg') },
+              { label: t('suggestRegenerateVideos'), message: t('suggestRegenerateVideosMsg') },
             ];
           }
         }
@@ -588,8 +583,10 @@ export function useVideoAgent() {
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         setMessages(prev => prev.map(m =>
-          m.id === activeMsgId ? { ...m, content: '', isLoading: false, isStreaming: false } : m
-        ).filter(m => !(m.id === activeMsgId && !m.content)));
+          m.id === activeMsgId
+            ? { ...m, content: i18n.t('videoAgent.userCancelled'), isLoading: false, isStreaming: false }
+            : m
+        ));
       } else {
         const errorMsg = err instanceof Error ? err.message : 'Unknown error';
         setMessages(prev => prev.map(m =>
@@ -624,16 +621,16 @@ export function useVideoAgent() {
   const frameModelOptions = useMemo(() => FRAME_MODELS.map(m => ({ id: m.id, label: m.name })), []);
   const videoModelOptions = useMemo(() => VIDEO_MODELS.map(m => ({ id: m.id, label: m.name })), []);
 
-  const addReference = useCallback((url: string) => {
+  const addReference = useCallback((entry: ReferenceEntry) => {
     const current = configRef.current.referenceImageUrls;
-    if (current.includes(url) || current.length >= 3) return;
-    const updated = [...current, url];
+    if (current.some(r => r.displayUrl === entry.displayUrl) || current.length >= 3) return;
+    const updated = [...current, entry];
     configRef.current = { ...configRef.current, referenceImageUrls: updated };
     setConfig(configRef.current);
   }, []);
 
-  const removeReference = useCallback((url: string) => {
-    const updated = configRef.current.referenceImageUrls.filter(u => u !== url);
+  const removeReference = useCallback((displayUrl: string) => {
+    const updated = configRef.current.referenceImageUrls.filter(r => r.displayUrl !== displayUrl);
     configRef.current = { ...configRef.current, referenceImageUrls: updated };
     setConfig(configRef.current);
   }, []);
