@@ -16,13 +16,15 @@ export { AGENT_TOOLS } from '@/hooks/video-agent/tools';
 // ─── Tool name constants — kept for consumers that need string literals ────────
 
 export const TOOL_NAMES = {
-  PLAN_STORY:           'plan_story',
+  DEVELOP_STORY:        'develop_story',
+  PLAN_SHOTS:           'plan_shots',
   GENERATE_FRAMES:      'generate_frames',
   GENERATE_VIDEOS:      'generate_videos',
   RESET_WORKSPACE:      'reset_workspace',
   GENERATE_IMAGE:       'generate_image',
   EDIT_SHOT:            'edit_shot',
   MANAGE_REFERENCES:    'manage_references',
+  VIEW_FRAME:           'view_frame',
   SUGGEST_NEXT_ACTIONS: 'suggest_next_actions',
 } as const;
 

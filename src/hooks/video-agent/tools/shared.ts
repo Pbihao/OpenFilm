@@ -3,7 +3,7 @@
  * Import these in every tool file — do NOT import from agentTools.ts.
  */
 
-import type { StoryboardShot, StoryboardConfig } from '@/types/storyboard';
+import type { StoryboardShot, StoryboardConfig, StoryBible } from '@/types/storyboard';
 import type { ToolCall } from '@/types/video-agent';
 import { generateFrame, buildFrameReferences, type ReferenceImage } from '@/edge-logic/generateFrame';
 import { isPublicUrl, assetDisplayUrl } from '@/lib/urlUtils';
@@ -40,12 +40,14 @@ export function resolveShotIndex(shot_index: number, shots: StoryboardShot[]): n
 export interface ToolContext {
   shotsRef: React.MutableRefObject<StoryboardShot[]>;
   configRef: React.MutableRefObject<StoryboardConfig>;
-  storySummaryRef: React.MutableRefObject<string>;
+  storyBibleRef: React.MutableRefObject<StoryBible | null>;
   abortControllerRef: React.MutableRefObject<AbortController | null>;
+  /** Cache for resolved ref URLs — populated on first use, reused across all frames in a generation run */
+  resolvedRefUrlsCache: React.MutableRefObject<Map<string, string>>;
   sessionFolder: string;
   setShots: React.Dispatch<React.SetStateAction<StoryboardShot[]>>;
   setConfig: React.Dispatch<React.SetStateAction<StoryboardConfig>>;
-  setStorySummary: React.Dispatch<React.SetStateAction<string>>;
+  setStoryBible: React.Dispatch<React.SetStateAction<StoryBible | null>>;
   updateToolProgress: (toolCallId: string, text: string) => void;
 }
 
@@ -88,24 +90,40 @@ export function replaceAllShots(ctx: ToolContext, shots: StoryboardShot[]) {
  * Resolve all global reference entries to public CDN URLs that fal.ai servers can fetch.
  * Refs with an existing apiUrl are used as-is; local-only refs are uploaded via falUploadFile.
  */
-async function resolveGlobalRefUrls(refs: StoryboardConfig['referenceImageUrls'], signal?: AbortSignal): Promise<string[]> {
-  const results: string[] = [];
-  for (const ref of refs) {
-    if (signal?.aborted) break;
+export async function resolveGlobalRefUrls(
+  refs: StoryboardConfig['referenceImageUrls'],
+  signal?: AbortSignal,
+  cache?: Map<string, string>,
+): Promise<string[]> {
+  if (refs.length === 0) return [];
+  if (signal?.aborted) return [];
+
+  // For each ref: return cached URL if available, otherwise upload
+  const resolved = await Promise.all(refs.map(async ref => {
+    if (signal?.aborted) return null;
+
+    // Already a public CDN URL — use directly
     if (isPublicUrl(ref.apiUrl)) {
-      results.push(ref.apiUrl!);
-    } else {
-      try {
-        const blob = await fetch(ref.displayUrl, { signal }).then(r => r.blob());
-        const file = new File([blob], 'reference.png', { type: blob.type || 'image/png' });
-        const url = await falUploadFile(file);
-        results.push(url);
-      } catch {
-        // Skip refs that fail to upload — don't block frame generation
-      }
+      cache?.set(ref.displayUrl, ref.apiUrl!);
+      return ref.apiUrl!;
     }
-  }
-  return results;
+
+    // Check session-scoped cache (avoids re-uploading the same image across frames)
+    const cached = cache?.get(ref.displayUrl);
+    if (cached) return cached;
+
+    try {
+      const blob = await fetch(ref.displayUrl, { signal }).then(r => r.blob());
+      const file = new File([blob], 'reference.png', { type: blob.type || 'image/png' });
+      const url = await falUploadFile(file);
+      cache?.set(ref.displayUrl, url);
+      return url;
+    } catch {
+      return null; // skip refs that fail — don't block frame generation
+    }
+  }));
+
+  return resolved.filter((url): url is string => url !== null);
 }
 
 export async function generateSingleFrame(
@@ -124,7 +142,7 @@ export async function generateSingleFrame(
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
     updateShot(ctx, shotIndex, { [statusKey]: 'generating', error: undefined });
 
-    const globalRefUrls = await resolveGlobalRefUrls(config.referenceImageUrls, signal);
+    const globalRefUrls = await resolveGlobalRefUrls(config.referenceImageUrls, signal, ctx.resolvedRefUrlsCache.current);
     const refs = buildFrameReferences(ctx.shotsRef.current, shotIndex, frameType, globalRefUrls);
     const remoteUrl = await generateFrame({
       prompt: shot[promptKey],
@@ -133,7 +151,7 @@ export async function generateSingleFrame(
       frameModelId: config.frameModelId,
       shotIndex,
       frameType,
-      storySummary: ctx.storySummaryRef.current,
+      storySummary: ctx.storyBibleRef.current?.narrative,
       shotPrompt: shot.prompt,
     }, signal);
 

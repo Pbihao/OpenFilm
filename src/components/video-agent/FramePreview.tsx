@@ -2,7 +2,7 @@
  * FramePreview — Reusable frame preview thumbnail with action overlays
  */
 import { useRef, useState } from 'react';
-import { ImageIcon, AlertCircle, Download, Trash2, Upload, RefreshCw, Sparkles, Paperclip } from 'lucide-react';
+import { ImageIcon, AlertCircle, Download, Trash2, Upload, Sparkles, Paperclip, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import {
@@ -22,13 +22,14 @@ interface FramePreviewProps {
   onDelete?: () => void;
   onUpload?: (file: File) => void;
   onRegenerate?: () => void;
+  onAddToLibrary?: () => void;
   onDropMaterial?: (displayUrl: string, refUrl: string) => void;
   onAttachToChat?: () => void;
 }
 
 export function FramePreview({
   url, status, label, failLabel, aspectClass = 'aspect-video', onClick,
-  onDownload, onDelete, onUpload, onRegenerate, onDropMaterial, onAttachToChat,
+  onDownload, onDelete, onUpload, onRegenerate, onAddToLibrary, onDropMaterial, onAttachToChat,
 }: FramePreviewProps) {
   const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -76,10 +77,11 @@ export function FramePreview({
                     <Download className="h-3.5 w-3.5" />
                   </button>
                 )}
-                {onRegenerate && (
-                  <button type="button" onClick={(e) => { stopProp(e); onRegenerate(); }}
+                {onAddToLibrary && (
+                  <button type="button" onClick={(e) => { stopProp(e); onAddToLibrary(); }}
+                    title="加入素材库"
                     className="h-7 w-7 rounded bg-background/80 backdrop-blur-sm flex items-center justify-center text-foreground hover:bg-background transition-colors">
-                    <RefreshCw className="h-3.5 w-3.5" />
+                    <Plus className="h-3.5 w-3.5" />
                   </button>
                 )}
                 {onDelete && (

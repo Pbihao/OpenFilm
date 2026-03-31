@@ -12,7 +12,8 @@ import type { ToolCall } from '@/types/video-agent';
 import type { ToolContext, ToolDefinition } from './shared';
 import { toolError } from './shared';
 
-import { toolDef as planStory }          from './plan_story';
+import { toolDef as developStory }       from './develop_story';
+import { toolDef as planShots }          from './plan_shots';
 import { toolDef as generateFrames }     from './generate_frames';
 import { toolDef as generateVideos }     from './generate_videos';
 import { toolDef as editShot }           from './edit_shot';
@@ -20,6 +21,7 @@ import { toolDef as resetWorkspace }     from './reset_workspace';
 import { toolDef as generateImage }      from './generate_image';
 import { toolDef as manageReferences }   from './manage_references';
 import { toolDef as suggestNextActions } from './suggest_next_actions';
+import { toolDef as viewFrame }          from './view_frame';
 
 export type { ToolContext, ToolDefinition };
 export type { ToolHandler } from './shared';
@@ -27,13 +29,15 @@ export type { ToolHandler } from './shared';
 // ─── Registry ─────────────────────────────────────────────────────────────────
 
 export const TOOL_REGISTRY: ToolDefinition[] = [
-  planStory,
+  developStory,
+  planShots,
   generateFrames,
   generateVideos,
   editShot,
   resetWorkspace,
   generateImage,
   manageReferences,
+  viewFrame,
   suggestNextActions,
 ];
 

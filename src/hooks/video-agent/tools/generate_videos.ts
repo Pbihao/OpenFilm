@@ -17,7 +17,8 @@ export const toolDef: ToolDefinition = {
       name: 'generate_videos',
       description:
         'Generate videos from keyframes. Omit shot_index to generate all shots. ' +
-        'Already-generated videos are skipped unless the user explicitly asks to redo them (use reset_workspace instead).',
+        'Already-generated videos are skipped unless the user explicitly asks to redo them (use reset_workspace instead). ' +
+        'If a shot is missing its last frame, generate the video with only the first frame — do NOT auto-call generate_frames to fill in missing frames unless the user explicitly asked for it.',
       parameters: {
         type: 'object',
         properties: {

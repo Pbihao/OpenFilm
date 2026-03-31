@@ -3,7 +3,7 @@
  */
 
 import type { AgentMessage } from '@/types/video-agent';
-import type { StoryboardShot, StoryboardConfig, ReferenceEntry } from '@/types/storyboard';
+import type { StoryboardShot, StoryboardConfig, StoryBible, ReferenceEntry } from '@/types/storyboard';
 import { makeRefEntry } from '@/lib/urlUtils';
 
 export const DEFAULT_CONFIG: StoryboardConfig = {
@@ -111,7 +111,7 @@ export interface PersistedSession {
   messages: AgentMessage[];
   shots: StoryboardShot[];
   config: StoryboardConfig;
-  storySummary: string;
+  storyBible: StoryBible | null;
   conversationSummary?: string;
   savedAt: number;
 }

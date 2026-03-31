@@ -15,15 +15,22 @@ export const handleEditShot: ToolHandler = async (ctx, args) => {
   }
   if (args.first_frame_prompt !== undefined) {
     patch.firstFramePrompt = args.first_frame_prompt;
-    patch.firstFrame = undefined;
-    patch.firstFrameStatus = 'idle';
+    // Do NOT clear firstFrame here — keep the existing image (manually assigned or generated).
+    // The frame is only replaced when `regenerate` is explicitly set below.
   }
   if (args.last_frame_prompt !== undefined) {
     patch.lastFramePrompt = args.last_frame_prompt;
-    patch.lastFrame = undefined;
-    patch.lastFrameStatus = 'idle';
+    // Same — preserve existing frame until caller explicitly requests regeneration.
   }
   updateShot(ctx, idx, patch);
+
+  // Sync scene intent back to StoryBible so creative context stays aligned with actual shots
+  if (args.scene_intent !== undefined && ctx.storyBibleRef.current) {
+    const scenes = [...ctx.storyBibleRef.current.scenes];
+    scenes[idx] = args.scene_intent;
+    ctx.storyBibleRef.current = { ...ctx.storyBibleRef.current, scenes };
+    ctx.setStoryBible(ctx.storyBibleRef.current);
+  }
 
   const regenerate = args.regenerate;
   if (!regenerate) return toolSuccess({ shot_index: args.shot_index });
@@ -57,8 +64,12 @@ export const toolDef: ToolDefinition = {
         properties: {
           shot_index: { type: 'number', description: 'Shot number (1-based)' },
           prompt: { type: 'string', description: 'New video description for the shot' },
-          first_frame_prompt: { type: 'string', description: 'New first-frame description' },
-          last_frame_prompt: { type: 'string', description: 'New last-frame description' },
+          first_frame_prompt: { type: 'string', description: 'Static image prompt for the opening keyframe. Focus on: camera angle & framing, environment/location details, lighting & atmosphere, subject starting pose/position in frame. Do NOT re-describe character appearance (defined in story bible). No motion words.' },
+          last_frame_prompt: { type: 'string', description: 'Static image prompt for the closing keyframe. SAME camera angle, framing, and environment as first_frame_prompt — only the subject\'s pose/position changes to the completed-action state. Bridges visually to the next shot. Do NOT re-describe character appearance.' },
+          scene_intent: {
+            type: 'string',
+            description: 'Updated one-sentence narrative purpose for this scene — syncs back to the story bible to keep creative context aligned.',
+          },
           regenerate: {
             description:
               'Regenerate frames after editing. true = both, "first" or "last" = specific frame.',

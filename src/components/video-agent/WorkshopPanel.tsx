@@ -155,6 +155,18 @@ function ShotPreviewCard({
   const [resolvedVideoUrl, setResolvedVideoUrl] = useState<string | undefined>(shot.videoUrl);
   const videoInputRef = useRef<HTMLInputElement>(null);
 
+  const handleAddFrameToLibrary = (frameType: 'first' | 'last') => {
+    const asset = frameType === 'first' ? shot.firstFrame : shot.lastFrame;
+    if (!asset) return;
+    onAddMaterial({
+      id: crypto.randomUUID(),
+      displayUrl: asset.localUrl ?? asset.remoteUrl,
+      apiUrl: asset.remoteUrl,
+      name: `Shot ${shot.index + 1} ${frameType} frame`,
+      addedAt: Date.now(),
+    });
+  };
+
   const handleVideoUpload = async (file: File) => {
     if (!onUpdate) return;
     try {
@@ -344,6 +356,7 @@ function ShotPreviewCard({
             onUpload={(file) => handleFrameUpload(file, 'first')}
             onRegenerate={() => handleFrameRegenerate('first')}
             onDropMaterial={(d, r) => handleFrameAssignMaterial(d, r, 'first')}
+            onAddToLibrary={shot.firstFrame ? () => handleAddFrameToLibrary('first') : undefined}
             onAttachToChat={shot.firstFrame ? () => attachFrameToChat(assetDisplayUrl(shot.firstFrame)!) : undefined} />
           <FramePreview url={assetDisplayUrl(shot.lastFrame)} status={shot.lastFrameStatus}
             aspectClass="aspect-[9/16]"
@@ -354,6 +367,7 @@ function ShotPreviewCard({
             onUpload={(file) => handleFrameUpload(file, 'last')}
             onRegenerate={() => handleFrameRegenerate('last')}
             onDropMaterial={(d, r) => handleFrameAssignMaterial(d, r, 'last')}
+            onAddToLibrary={shot.lastFrame ? () => handleAddFrameToLibrary('last') : undefined}
             onAttachToChat={shot.lastFrame ? () => attachFrameToChat(assetDisplayUrl(shot.lastFrame)!) : undefined} />
           <div className={cn('rounded-lg overflow-hidden bg-muted border border-border/50 group relative', aspectClass, shot.videoUrl && 'cursor-pointer')}
             onClick={() => shot.videoUrl && setVideoDialogOpen(true)}>
@@ -419,6 +433,7 @@ function ShotPreviewCard({
             onUpload={(file) => handleFrameUpload(file, 'first')}
             onRegenerate={() => handleFrameRegenerate('first')}
             onDropMaterial={(d, r) => handleFrameAssignMaterial(d, r, 'first')}
+            onAddToLibrary={shot.firstFrame ? () => handleAddFrameToLibrary('first') : undefined}
             onAttachToChat={shot.firstFrame ? () => attachFrameToChat(assetDisplayUrl(shot.firstFrame)!) : undefined} />
           <div className={cn('rounded-lg overflow-hidden bg-muted border border-border/50 row-span-2 group relative', aspectClass, shot.videoUrl && 'cursor-pointer')}
             onClick={() => shot.videoUrl && setVideoDialogOpen(true)}>
@@ -480,6 +495,7 @@ function ShotPreviewCard({
             onUpload={(file) => handleFrameUpload(file, 'last')}
             onRegenerate={() => handleFrameRegenerate('last')}
             onDropMaterial={(d, r) => handleFrameAssignMaterial(d, r, 'last')}
+            onAddToLibrary={shot.lastFrame ? () => handleAddFrameToLibrary('last') : undefined}
             onAttachToChat={shot.lastFrame ? () => attachFrameToChat(assetDisplayUrl(shot.lastFrame)!) : undefined} />
         </div>
       )}

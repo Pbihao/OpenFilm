@@ -1,31 +1,36 @@
-import { generateFrame } from '@/edge-logic/generateFrame';
+import { callStandaloneImageModel } from '@/edge-logic/generateFrame';
 import { writeSessionFile } from '@/lib/localFs';
 import type { ToolHandler, ToolDefinition, ReferenceImage } from './shared';
-import { toolError, toolSuccess } from './shared';
+import { toolError, toolSuccess, resolveGlobalRefUrls } from './shared';
 
-export const handleGenerateImage: ToolHandler = async (ctx, args) => {
+export const handleGenerateImage: ToolHandler = async (ctx, args, tcId) => {
   if (!args.prompt) return toolError('Prompt is required');
 
   try {
     const signal = ctx.abortControllerRef.current?.signal;
-    const refs: ReferenceImage[] = args.reference_image_url
-      ? [{ url: args.reference_image_url, role: 'global_reference' }]
-      : [];
-    const falUrl = await generateFrame({
+    ctx.updateToolProgress(tcId, 'Generating...');
+
+    const globalRefUrls = await resolveGlobalRefUrls(ctx.configRef.current.referenceImageUrls, signal, ctx.resolvedRefUrlsCache.current);
+    const userRefUrls: string[] = Array.isArray(args.reference_image_urls) ? args.reference_image_urls : [];
+    const allRefUrls = [...globalRefUrls, ...userRefUrls];
+    const refs: ReferenceImage[] = allRefUrls.map(url => ({ url, role: 'global_reference' }));
+
+    const url = await callStandaloneImageModel({
       prompt: args.prompt,
       referenceImages: refs,
       aspectRatio: ctx.configRef.current.aspectRatio,
       frameModelId: ctx.configRef.current.frameModelId,
-      shotIndex: 0,
-      frameType: 'first',
-      storySummary: '',
-      shotPrompt: args.prompt,
     }, signal);
-    const filename = `images/chat_${Date.now()}.${falUrl.includes('.png') ? 'png' : 'jpg'}`;
-    const blob = await fetch(falUrl, { signal }).then(r => r.blob());
-    const localUrl = await writeSessionFile(ctx.sessionFolder, filename, blob);
-    return toolSuccess({ image_url: localUrl ?? falUrl });
+
+    // Save locally for debugging (fire-and-forget — never blocks or affects the result)
+    const ext = url.includes('.png') ? 'png' : 'jpg';
+    fetch(url).then(r => r.blob())
+      .then(blob => writeSessionFile(ctx.sessionFolder, `images/chat_${Date.now()}.${ext}`, blob))
+      .catch(() => {});
+
+    return toolSuccess({ image_url: url });
   } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') throw err;
     return toolError(err instanceof Error ? err.message : String(err));
   }
 };
@@ -40,7 +45,11 @@ export const toolDef: ToolDefinition = {
         type: 'object',
         properties: {
           prompt: { type: 'string', description: 'Text description of the image' },
-          reference_image_url: { type: 'string', description: 'Optional reference image URL' },
+          reference_image_urls: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional list of reference image URLs. Global session references are always included automatically.',
+          },
         },
         required: ['prompt'],
       },

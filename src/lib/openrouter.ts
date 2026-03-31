@@ -4,7 +4,7 @@
 
 import { loadConfig } from '@/config';
 
-export async function openrouterChat(body: Record<string, unknown>): Promise<Response> {
+export async function openrouterChat(body: Record<string, unknown>, signal?: AbortSignal): Promise<Response> {
   const config = loadConfig();
   if (!config.openrouterApiKey) throw new Error('OpenRouter API key not configured');
 
@@ -16,6 +16,7 @@ export async function openrouterChat(body: Record<string, unknown>): Promise<Res
       'HTTP-Referer': 'https://video-agent.local',
     },
     body: JSON.stringify(body),
+    signal,
   });
 
   if (!resp.ok) {
@@ -26,7 +27,7 @@ export async function openrouterChat(body: Record<string, unknown>): Promise<Res
   return resp;
 }
 
-export async function openrouterChatJson(body: Record<string, unknown>): Promise<any> {
-  const resp = await openrouterChat({ ...body, stream: false });
+export async function openrouterChatJson(body: Record<string, unknown>, signal?: AbortSignal): Promise<any> {
+  const resp = await openrouterChat({ ...body, stream: false }, signal);
   return resp.json();
 }

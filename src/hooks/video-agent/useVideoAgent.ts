@@ -4,7 +4,7 @@
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
-import type { StoryboardShot, StoryboardConfig, ShotStatus, FrameStatus, ReferenceEntry } from '@/types/storyboard';
+import type { StoryboardShot, StoryboardConfig, StoryBible, ShotStatus, FrameStatus, ReferenceEntry } from '@/types/storyboard';
 import type { AgentMessage, ToolCall, SuggestedAction } from '@/types/video-agent';
 import { VIDEO_MODEL_CAPABILITIES, STORYBOARD_VIDEO_MODELS } from '@/types/video-generation';
 import { writeSessionFile, makeSessionFolder } from '@/lib/localFs';
@@ -130,19 +130,20 @@ async function executeToolSafe(
 ): Promise<{ tool_call_id: string; content: string }> {
   try {
     const toolResult = await executeTool(toolCtx, tc);
-    setMessages(prev => prev.map(m =>
-      m.id === assistantMsgId
-        ? { ...m, toolStatus: m.toolStatus?.map(ts => ts.id === tc.id ? { ...ts, status: 'done' as const, result: toolResult } : ts) }
-        : m
-    ));
+    // Parse image URL before setMessages so we update toolStatus + imageUrls in a single render
+    let imageUrl: string | undefined;
     try {
       const parsed = JSON.parse(toolResult);
-      if (parsed.image_url) {
-        setMessages(prev => prev.map(m =>
-          m.id === assistantMsgId ? { ...m, imageUrls: [...(m.imageUrls || []), parsed.image_url] } : m
-        ));
-      }
+      if (parsed.image_url) imageUrl = parsed.image_url;
     } catch { /* not JSON */ }
+    setMessages(prev => prev.map(m => {
+      if (m.id !== assistantMsgId) return m;
+      return {
+        ...m,
+        toolStatus: m.toolStatus?.map(ts => ts.id === tc.id ? { ...ts, status: 'done' as const, result: toolResult } : ts),
+        ...(imageUrl ? { imageUrls: [...(m.imageUrls || []), imageUrl] } : {}),
+      };
+    }));
     return { tool_call_id: tc.id, content: toolResult };
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err;
@@ -163,7 +164,7 @@ export function useVideoAgent() {
   const [shots, setShots] = useState<StoryboardShot[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [config, setConfig] = useState<StoryboardConfig>(DEFAULT_CONFIG);
-  const [storySummary, setStorySummary] = useState('');
+  const [storyBible, setStoryBible] = useState<StoryBible | null>(null);
   const [conversationSummary, setConversationSummary] = useState<string | null>(null);
 
   const sessionIdRef = useRef<string>(crypto.randomUUID());
@@ -172,8 +173,8 @@ export function useVideoAgent() {
   shotsRef.current = shots;
   const configRef = useRef<StoryboardConfig>(config);
   configRef.current = config;
-  const storySummaryRef = useRef('');
-  storySummaryRef.current = storySummary;
+  const storyBibleRef = useRef<StoryBible | null>(null);
+  storyBibleRef.current = storyBible;
   const messagesRef = useRef<AgentMessage[]>([]);
   messagesRef.current = messages;
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -196,28 +197,31 @@ export function useVideoAgent() {
       setMessages(cleanMessages);
       setShots(cleanShots);
       setConfig(saved.config);
-      setStorySummary(saved.storySummary);
+      setStoryBible(saved.storyBible ?? null);
       setConversationSummary(saved.conversationSummary || null);
       sessionIdRef.current = saved.id;
       if (saved.sessionFolder) setSessionFolder(saved.sessionFolder);
     }
   }, []);
 
-  // Instant-save whenever shots gain new frame/video URLs (fires even during isProcessing)
+  // Debounced save whenever shots gain new frame/video URLs (fires even during isProcessing)
   const shotsUrlsKey = shots
     .map(s => [s.firstFrame?.remoteUrl, s.lastFrame?.remoteUrl, s.videoUrl].filter(Boolean).join(','))
     .join('|');
   useEffect(() => {
     const hasGeneratedContent = shots.some(s => s.firstFrame || s.videoUrl);
     if (!hasGeneratedContent) return;
-    const cleanMessages = messagesRef.current.filter(m => !m.isLoading && !m.isStreaming);
-    const sessionData = {
-      id: sessionIdRef.current, sessionFolder,
-      messages: cleanMessages, shots, config, storySummary,
-      conversationSummary: conversationSummary || undefined, savedAt: Date.now(),
-    };
-    saveSession(sessionData);
-    void writeSessionFile(sessionFolder, 'session.json', JSON.stringify(sessionData, null, 2));
+    const timerId = setTimeout(() => {
+      const cleanMessages = messagesRef.current.filter(m => !m.isLoading && !m.isStreaming);
+      const sessionData = {
+        id: sessionIdRef.current, sessionFolder,
+        messages: cleanMessages, shots, config, storyBible,
+        conversationSummary: conversationSummary || undefined, savedAt: Date.now(),
+      };
+      saveSession(sessionData);
+      void writeSessionFile(sessionFolder, 'session.json', JSON.stringify(sessionData, null, 2));
+    }, 1000);
+    return () => clearTimeout(timerId);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shotsUrlsKey]);
 
@@ -243,7 +247,7 @@ export function useVideoAgent() {
       // Persist compressed state immediately so a refresh doesn't undo the compaction
       const compressedSession = {
         id: sessionIdRef.current, sessionFolder,
-        messages: toKeep, shots, config, storySummary,
+        messages: toKeep, shots, config, storyBible,
         conversationSummary: heuristicSummary, savedAt: Date.now(),
       };
       saveSession(compressedSession);
@@ -267,22 +271,26 @@ export function useVideoAgent() {
     }
 
     if (messages.length === 0 && shots.length === 0) return;
-    const sessionData = {
-      id: sessionIdRef.current, sessionFolder, messages, shots, config, storySummary,
-      conversationSummary: conversationSummary || undefined, savedAt: Date.now(),
-    };
-    saveSession(sessionData);
-    void writeSessionFile(sessionFolder, 'session.json', JSON.stringify(sessionData, null, 2));
+    const timerId = setTimeout(() => {
+      const sessionData = {
+        id: sessionIdRef.current, sessionFolder, messages, shots, config, storyBible,
+        conversationSummary: conversationSummary || undefined, savedAt: Date.now(),
+      };
+      saveSession(sessionData);
+      void writeSessionFile(sessionFolder, 'session.json', JSON.stringify(sessionData, null, 2));
+    }, 1000);
+    return () => clearTimeout(timerId);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages.length, shots, config, storySummary, conversationSummary, isProcessing, sessionFolder]);
+  }, [messages.length, shots, config, storyBible, conversationSummary, isProcessing, sessionFolder]);
 
   const clearSession = useCallback(() => {
     clearStoredSession();
     clearVideoCache();
+    resolvedRefUrlsCacheRef.current.clear();
     setMessages([]);
     setShots([]);
     setConfig(DEFAULT_CONFIG);
-    setStorySummary('');
+    setStoryBible(null);
     setConversationSummary(null);
     sessionIdRef.current = crypto.randomUUID();
     setSessionFolder(makeSessionFolder());
@@ -315,21 +323,29 @@ export function useVideoAgent() {
     }));
   }, []);
 
+  const resolvedRefUrlsCacheRef = useRef(new Map<string, string>());
+
   const toolCtxRef = useRef<ToolContext>(null!);
   toolCtxRef.current = {
-    shotsRef, configRef, storySummaryRef, abortControllerRef,
+    shotsRef, configRef, storyBibleRef, abortControllerRef,
+    resolvedRefUrlsCache: resolvedRefUrlsCacheRef,
     sessionFolder,
-    setShots, setConfig, setStorySummary, updateToolProgress,
+    setShots, setConfig, setStoryBible, updateToolProgress,
   };
 
   const conversationSummaryRef = useRef<string | null>(null);
   conversationSummaryRef.current = conversationSummary;
 
   const buildShotsContext = useCallback(() => {
-    return shotsRef.current.map(s => ({
+    return shotsRef.current.map((s, i) => ({
+      shotIndex: i + 1,
       prompt: s.prompt, firstFramePrompt: s.firstFramePrompt, lastFramePrompt: s.lastFramePrompt,
+      // display URL (local cache preferred) — for JSON context only
       firstFrameUrl: s.firstFrame ? (s.firstFrame.localUrl ?? s.firstFrame.remoteUrl) : undefined,
       lastFrameUrl: s.lastFrame ? (s.lastFrame.localUrl ?? s.lastFrame.remoteUrl) : undefined,
+      // CDN URLs — used as vision inputs in system message (must be public)
+      firstFrameRemoteUrl: s.firstFrame?.remoteUrl,
+      lastFrameRemoteUrl: s.lastFrame?.remoteUrl,
       videoUrl: s.videoUrl, status: s.status,
     }));
   }, []);
@@ -345,7 +361,24 @@ export function useVideoAgent() {
     const raw = extraMessages
       .filter(m => !m.isLoading && !m.isStreaming)
       .map(m => {
-        if (m.role === 'tool') return { role: 'tool' as const, content: m.content, tool_call_id: m.tool_call_id };
+        if (m.role === 'tool') {
+          let content: unknown = m.content;
+          try {
+            const parsed = JSON.parse(m.content || '{}');
+            if (parsed.image_url) {
+              content = [
+                { type: 'text', text: m.content },
+                { type: 'image_url', image_url: { url: parsed.image_url } },
+              ];
+            } else if (Array.isArray(parsed.image_urls) && parsed.image_urls.length > 0) {
+              content = [
+                { type: 'text', text: m.content },
+                ...parsed.image_urls.map((url: string) => ({ type: 'image_url', image_url: { url } })),
+              ];
+            }
+          } catch { /* leave content as string if not parseable */ }
+          return { role: 'tool' as const, content, tool_call_id: m.tool_call_id };
+        }
         if (m.role === 'user' && m.imageUrls && m.imageUrls.length > 0) {
           const parts: Record<string, unknown>[] = [];
           let textContent = m.content || '';
@@ -371,12 +404,38 @@ export function useVideoAgent() {
     apiMessages: Record<string, unknown>[], streamingMsgId: string,
     enableThinking?: boolean, signal?: AbortSignal,
   ) => {
-    return streamAgentResponse(
-      { messages: apiMessages, shots_context: buildShotsContext(), user_config: { shot_count: configRef.current.shotCount || 3, aspect_ratio: configRef.current.aspectRatio || '16:9' }, enable_thinking: !!enableThinking },
-      (delta) => { setMessages(prev => prev.map(m => m.id === streamingMsgId ? { ...m, content: (m.content || '') + delta, isLoading: false, isStreaming: true } : m)); },
-      (thinkDelta) => { setMessages(prev => prev.map(m => m.id === streamingMsgId ? { ...m, thinking: (m.thinking || '') + thinkDelta, isLoading: false, isStreaming: true } : m)); },
-      !!enableThinking, signal,
-    );
+    // Accumulate deltas and flush once per animation frame (~60fps) instead of per-token
+    let contentBuffer = '';
+    let thinkingBuffer = '';
+    let rafId: number | null = null;
+
+    const flush = () => {
+      rafId = null;
+      const c = contentBuffer;
+      const t = thinkingBuffer;
+      contentBuffer = '';
+      thinkingBuffer = '';
+      if (!c && !t) return;
+      setMessages(prev => prev.map(m => m.id === streamingMsgId ? {
+        ...m,
+        content: c ? (m.content || '') + c : m.content,
+        thinking: t ? (m.thinking || '') + t : m.thinking,
+        isLoading: false, isStreaming: true,
+      } : m));
+    };
+
+    try {
+      return await streamAgentResponse(
+        { messages: apiMessages, shots_context: buildShotsContext(), story_bible: storyBibleRef.current, user_config: { shot_count: configRef.current.shotCount || 3, aspect_ratio: configRef.current.aspectRatio || '16:9' }, enable_thinking: !!enableThinking },
+        (delta) => { contentBuffer += delta; if (!rafId) rafId = requestAnimationFrame(flush); },
+        (thinkDelta) => { thinkingBuffer += thinkDelta; if (!rafId) rafId = requestAnimationFrame(flush); },
+        !!enableThinking, signal,
+      );
+    } finally {
+      // Flush any remaining buffered content after stream ends
+      if (rafId) cancelAnimationFrame(rafId);
+      flush();
+    }
   }, [buildShotsContext]);
 
   function resizeToDataUrl(file: File, maxSize = 1024, quality = 0.75): Promise<string> {
@@ -474,6 +533,7 @@ export function useVideoAgent() {
             result = await streamAgentTurn(currentApiMessages, currentMsgId, enableThinking, abortControllerRef.current?.signal);
             break;
           } catch (retryErr: any) {
+            if (abortControllerRef.current?.signal.aborted) throw retryErr;
             const isRetryable = attempt === 0 && (
               (!retryErr?.status && /failed to fetch|timeout|network/i.test(retryErr?.message || ''))
               || (retryErr?.status >= 500)
@@ -636,7 +696,7 @@ export function useVideoAgent() {
   }, []);
 
   return {
-    messages, shots, isProcessing, config, storySummary, sessionFolder,
+    messages, shots, isProcessing, config, storyBible, sessionFolder,
     sendMessage, setConfig, setShots, clearSession, cancelGeneration, updateConfig,
     updateShot, frameModelOptions, videoModelOptions,
     confirmPendingTools, rejectPendingTools,

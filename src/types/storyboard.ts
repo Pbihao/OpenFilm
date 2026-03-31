@@ -42,6 +42,12 @@ export interface ReferenceEntry {
   apiUrl?: string;      // https:// only — for fal.ai API
 }
 
+export interface StoryBible {
+  narrative: string;   // filmmaker's intent: premise + visual world (lighting, color, mood, art style) + emotional arc
+  subjects: string;    // exact character/object descriptions — verbatim anchor for visual consistency across all shots
+  scenes: string[];    // N items, one per shot: what this scene accomplishes narratively/emotionally (not how to film it)
+}
+
 export interface StoryboardConfig {
   frameModelId: string;
   videoModelId: string;

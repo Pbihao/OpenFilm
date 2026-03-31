@@ -6,6 +6,7 @@ import { loadConfig } from '@/config';
 import { SYSTEM_PROMPT } from '@/edge-logic/systemPrompt';
 import { AGENT_TOOLS } from '@/edge-logic/agentToolDefs';
 import type { ToolCall, StreamResult } from '@/types/video-agent';
+import type { StoryBible } from '@/types/storyboard';
 
 // ============= Context Window Management =============
 
@@ -76,6 +77,7 @@ export async function streamAgentResponse(
   body: {
     messages: Record<string, unknown>[];
     shots_context: unknown;
+    story_bible?: StoryBible | null;
     user_config: { shot_count: number; aspect_ratio: string };
     enable_thinking?: boolean;
   },
@@ -87,20 +89,29 @@ export async function streamAgentResponse(
   const config = loadConfig();
   if (!config.openrouterApiKey) throw new Error('OpenRouter API key not configured. Go to Settings.');
 
-  // Build system message with shots context
-  let systemContent = SYSTEM_PROMPT;
-  if (body.shots_context && (body.shots_context as unknown[]).length > 0) {
-    systemContent += `\n\n## Current Storyboard State\n\`\`\`json\n${JSON.stringify(body.shots_context, null, 2)}\n\`\`\``;
+  // Build system message text
+  let systemText = SYSTEM_PROMPT;
+
+  if (body.story_bible) {
+    systemText += `\n\n## Story Bible\nNarrative: ${body.story_bible.narrative}\nSubjects: ${body.story_bible.subjects}`;
   }
-  systemContent += `\n\nUser config: shot_count=${body.user_config.shot_count}, aspect_ratio=${body.user_config.aspect_ratio}`;
+
+  const shots = (body.shots_context as any[]) ?? [];
+  if (shots.length > 0) {
+    // Strip internal URL fields not needed in the JSON context
+    const shotsForJson = shots.map(({ firstFrameRemoteUrl: _a, lastFrameRemoteUrl: _b, ...rest }: any) => rest);
+    systemText += `\n\n## Current Storyboard\n\`\`\`json\n${JSON.stringify(shotsForJson, null, 2)}\n\`\`\``;
+  }
+
+  systemText += `\n\nUser config: shot_count=${body.user_config.shot_count}, aspect_ratio=${body.user_config.aspect_ratio}`;
 
   const apiMessages = [
-    { role: 'system', content: systemContent },
+    { role: 'system', content: systemText },
     ...body.messages,
   ];
 
   const apiBody: Record<string, unknown> = {
-    model: config.agentModel || 'google/gemini-3.1-pro-preview',
+    model: config.agentModel,
     messages: apiMessages,
     tools: AGENT_TOOLS,
     stream: true,
@@ -141,69 +152,75 @@ export async function streamAgentResponse(
 
   const STREAM_TIMEOUT_MS = 60_000;
 
-  while (true) {
-    if (signal?.aborted) break;
+  // Single timeout for the whole stream — avoids creating a new Promise per chunk
+  let streamFinished = false;
+  const timeoutId = setTimeout(() => {
+    if (!streamFinished) reader.cancel(new Error('AI response timeout, please retry'));
+  }, STREAM_TIMEOUT_MS);
+  if (signal) signal.addEventListener('abort', () => clearTimeout(timeoutId), { once: true });
 
-    let timerId: ReturnType<typeof setTimeout> | undefined;
-    const { done, value } = await Promise.race([
-      reader.read(),
-      new Promise<never>((_, reject) => {
-        timerId = setTimeout(() => reject(new Error('AI response timeout, please retry')), STREAM_TIMEOUT_MS);
-        signal?.addEventListener('abort', () => clearTimeout(timerId), { once: true });
-      }),
-    ]);
-    clearTimeout(timerId);
-    if (done) break;
+  try {
+    while (true) {
+      if (signal?.aborted) break;
 
-    buffer += decoder.decode(value, { stream: true });
+      const chunk = await reader.read();
+      if (chunk.done) break;
 
-    let newlineIdx: number;
-    while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
-      let line = buffer.slice(0, newlineIdx);
-      buffer = buffer.slice(newlineIdx + 1);
-      if (line.endsWith('\r')) line = line.slice(0, -1);
-      if (!line.startsWith('data: ')) continue;
+      buffer += decoder.decode(chunk.value, { stream: true });
 
-      const jsonStr = line.slice(6).trim();
-      if (jsonStr === '[DONE]') continue;
+      let newlineIdx: number;
+      let gotDone = false;
+      while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
+        let line = buffer.slice(0, newlineIdx);
+        buffer = buffer.slice(newlineIdx + 1);
+        if (line.endsWith('\r')) line = line.slice(0, -1);
+        if (!line.startsWith('data: ')) continue;
 
-      try {
-        const parsed = JSON.parse(jsonStr);
+        const jsonStr = line.slice(6).trim();
+        if (jsonStr === '[DONE]') { gotDone = true; break; }
 
-        const reasoningDelta = parsed.choices?.[0]?.delta?.reasoning;
-        if (enableThinking && reasoningDelta) {
-          thinking += reasoningDelta;
-          onThinking(reasoningDelta);
-        }
+        try {
+          const parsed = JSON.parse(jsonStr);
 
-        const contentDelta = parsed.choices?.[0]?.delta?.content;
-        if (contentDelta) {
-          content += contentDelta;
-          onDelta(contentDelta);
-        }
-
-        // Assemble tool calls incrementally from deltas
-        const tcDelta = parsed.choices?.[0]?.delta?.tool_calls;
-        if (Array.isArray(tcDelta)) {
-          for (const tc of tcDelta) {
-            const idx = tc.index ?? 0;
-            if (!toolCallMap.has(idx)) {
-              toolCallMap.set(idx, {
-                id: tc.id || `tc_${idx}`,
-                type: 'function',
-                function: { name: tc.function?.name || '', arguments: '' },
-              });
-            }
-            const entry = toolCallMap.get(idx)!;
-            if (tc.id) entry.id = tc.id;
-            if (tc.function?.name) entry.function.name = tc.function.name;
-            if (tc.function?.arguments) entry.function.arguments += tc.function.arguments;
+          const reasoningDelta = parsed.choices?.[0]?.delta?.reasoning;
+          if (enableThinking && reasoningDelta) {
+            thinking += reasoningDelta;
+            onThinking(reasoningDelta);
           }
+
+          const contentDelta = parsed.choices?.[0]?.delta?.content;
+          if (contentDelta) {
+            content += contentDelta;
+            onDelta(contentDelta);
+          }
+
+          // Assemble tool calls incrementally from deltas
+          const tcDelta = parsed.choices?.[0]?.delta?.tool_calls;
+          if (Array.isArray(tcDelta)) {
+            for (const tc of tcDelta) {
+              const idx = tc.index ?? 0;
+              if (!toolCallMap.has(idx)) {
+                toolCallMap.set(idx, {
+                  id: tc.id || `tc_${idx}`,
+                  type: 'function',
+                  function: { name: tc.function?.name || '', arguments: '' },
+                });
+              }
+              const entry = toolCallMap.get(idx)!;
+              if (tc.id) entry.id = tc.id;
+              if (tc.function?.name) entry.function.name = tc.function.name;
+              if (tc.function?.arguments) entry.function.arguments += tc.function.arguments;
+            }
+          }
+        } catch {
+          continue;
         }
-      } catch {
-        continue;
       }
+      if (gotDone) break;
     }
+  } finally {
+    streamFinished = true;
+    clearTimeout(timeoutId);
   }
 
   // Convert assembled tool calls — filter out entries that were never fully assembled (aborted mid-stream)

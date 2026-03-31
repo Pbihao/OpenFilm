@@ -70,10 +70,9 @@ export function AgentChatPanel({
 
   const messagesLen = messages.length;
   const lastMsgStreaming = messages[messages.length - 1]?.isStreaming;
-  const lastMsgContentLen = messages[messages.length - 1]?.content?.length ?? 0;
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: lastMsgStreaming ? 'instant' : 'smooth' });
-  }, [messagesLen, lastMsgStreaming, lastMsgContentLen]);
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messagesLen, lastMsgStreaming]);
 
   const handleSend = () => {
     if ((!input.trim() && pendingImages.length === 0) || isProcessing) return;

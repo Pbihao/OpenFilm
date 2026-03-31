@@ -2,7 +2,7 @@
  * AssistantMessageBubble — Assistant message display in agent chat
  */
 import { useState } from 'react';
-import { Sparkles, ChevronRight, Wrench, CheckCircle2, XCircle, ChevronDown, Check, X, Download, Plus } from 'lucide-react';
+import { Sparkles, ChevronRight, Wrench, CheckCircle2, XCircle, ChevronDown, Check, X, Download, Plus, ImageOff } from 'lucide-react';
 import { ImageLightbox } from '@/components/ImageLightbox';
 import { useTranslation } from 'react-i18next';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -13,13 +13,15 @@ import { Chip } from '@/components/ui/chip';
 import type { AgentMessage, ToolCall } from '@/types/video-agent';
 
 const TOOL_LABEL_KEYS: Record<string, string> = {
-  plan_story:           'videoAgent.toolPlanStory',
+  develop_story:        'videoAgent.toolDevelopStory',
+  plan_shots:           'videoAgent.toolPlanShots',
   generate_frames:      'videoAgent.toolGenerateFrames',
   generate_videos:      'videoAgent.toolGenerateVideos',
   edit_shot:            'videoAgent.toolEditShot',
   reset_workspace:      'videoAgent.toolResetWorkspace',
   generate_image:       'videoAgent.toolGenerateImage',
   manage_references:    'videoAgent.toolManageReferences',
+  view_frame:           'videoAgent.toolViewFrame',
 };
 
 function BouncingDots() {
@@ -102,7 +104,7 @@ function ToolConfirmationCard({
   const { t } = useTranslation();
   const isPending = confirmationStatus === 'pending';
   const isDestructive = pendingToolCalls.some(tc =>
-    tc.function.name === 'reset_workspace' || tc.function.name === 'plan_story'
+    tc.function.name === 'reset_workspace' || tc.function.name === 'plan_shots'
   );
 
   return (
@@ -132,6 +134,32 @@ function ToolConfirmationCard({
           {confirmationStatus === 'confirmed' ? '✅ ' + t('videoAgent.confirmButton') : '❌ ' + t('videoAgent.userCancelled')}
         </div>
       )}
+    </div>
+  );
+}
+
+function ChatImage({ url, onOpen }: { url: string; onOpen: () => void }) {
+  const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
+  return (
+    <div className="relative w-[200px] h-[150px] rounded-lg border border-border overflow-hidden bg-muted/30">
+      {status === 'loading' && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="w-6 h-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+        </div>
+      )}
+      {status === 'error' && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-muted-foreground">
+          <ImageOff className="h-5 w-5" />
+          <span className="text-[10px]">Image unavailable</span>
+        </div>
+      )}
+      <img
+        src={url} alt=""
+        className={`w-full h-full object-cover cursor-zoom-in transition-opacity duration-200 ${status === 'loaded' ? 'opacity-100' : 'opacity-0'}`}
+        onLoad={() => setStatus('loaded')}
+        onError={() => setStatus('error')}
+        onClick={status === 'loaded' ? onOpen : undefined}
+      />
     </div>
   );
 }
@@ -174,11 +202,7 @@ export function AssistantMessageBubble({ message, isLastAssistant, onSendMessage
         <div className="flex flex-wrap gap-2 mt-2">
           {message.imageUrls.map((url, i) => (
             <div key={i} className="relative group/img">
-              <img
-                src={url} alt=""
-                className="max-w-[200px] rounded-lg border border-border object-cover cursor-zoom-in"
-                onClick={() => setLightboxUrl(url)}
-              />
+              <ChatImage url={url} onOpen={() => setLightboxUrl(url)} />
               <div className="absolute bottom-1.5 right-1.5 flex gap-1 opacity-0 group-hover/img:opacity-100 transition-opacity">
                 <button
                   onClick={() => downloadImage(url, `generated-${i + 1}.png`)}
